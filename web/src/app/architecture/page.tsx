@@ -1,6 +1,6 @@
 'use client';
 
-import { Sun, ArrowLeft, Database, Globe, Cpu, BarChart3, Zap, Building2, MapPin, DollarSign, Leaf, ChevronRight } from 'lucide-react';
+import { Sun, ArrowLeft, Database, Globe, Cpu, BarChart3, Zap, Building2, MapPin, DollarSign, Leaf, ChevronRight, Calendar } from 'lucide-react';
 import Link from 'next/link';
 import { ThemeToggle } from '@/components/ThemeToggle';
 
@@ -78,15 +78,15 @@ export default function ArchitecturePage() {
           />
           <DataSource
             name="NREL Annual Technology Baseline (ATB)"
-            url="https://atb.nrel.gov/electricity/2023/commercial_pv"
+            url="https://atb.nrel.gov/electricity/2024/commercial_pv"
             desc="State-level AC capacity factors for commercial rooftop PV systems, ranging from 14.0% (Pacific Northwest) to 19.8% (Arizona/Southwest). Accounts for ~14% system losses including inverter efficiency, soiling, wiring, mismatch, and availability."
-            citation="NREL, 2023"
+            citation="NREL, 2024"
           />
           <DataSource
             name="EPA eGRID"
             url="https://www.epa.gov/egrid"
-            desc="State-level grid CO₂ emission rates (kg CO₂/kWh) used to calculate avoided carbon emissions from solar generation. Rates range from 0.076 (Washington, hydro-heavy) to 0.531 (Hawaii, oil-dependent)."
-            citation="EPA eGRID, 2022"
+            desc="State-level grid CO₂ emission rates (kg CO₂/kWh) used to calculate avoided carbon emissions from solar generation. Rates range from 0.120 (Washington, hydro-heavy) to 0.628 (Hawaii, oil-dependent)."
+            citation="EPA eGRID, 2023"
           />
           <DataSource
             name="SEIA / Wood Mackenzie"
@@ -171,12 +171,12 @@ export default function ArchitecturePage() {
               <AssumptionRow param="Usable Roof Fraction" def="65%" range="30–80%" source="NREL (Gagnon et al., 2016)" />
               <AssumptionRow param="Install Cost" def="$1.40/W" range="Fixed" source="SEIA/Wood Mackenzie 2025" />
               <AssumptionRow param="Federal ITC" def="30%" range="Fixed" source="Inflation Reduction Act, through 2032" />
-              <AssumptionRow param="Degradation Rate" def="0.5%/yr" range="Fixed" source="NREL 2023 ATB" />
-              <AssumptionRow param="O&M Cost" def="$15/kW/yr" range="Fixed" source="NREL 2023 ATB" />
+              <AssumptionRow param="Degradation Rate" def="0.5%/yr" range="Fixed" source="NREL 2024 ATB" />
+              <AssumptionRow param="O&M Cost" def="$15/kW/yr" range="Fixed" source="NREL 2024 ATB" />
               <AssumptionRow param="System Lifetime" def="25 years" range="Fixed" source="Industry standard" />
               <AssumptionRow param="Discount Rate" def="6%" range="Fixed" source="Commercial WACC benchmark" />
-              <AssumptionRow param="Electricity Price" def="$0.12/kWh" range="$0.06–$0.25" source="EIA commercial average" />
-              <AssumptionRow param="Capacity Factor" def="15.8% (US avg)" range="14.0–19.8%" source="NREL 2023 ATB, by state" />
+              <AssumptionRow param="Electricity Price" def="$0.13/kWh" range="$0.06–$0.25" source="EIA commercial average" />
+              <AssumptionRow param="Capacity Factor" def="15.8% (US avg)" range="14.0–19.8%" source="NREL 2024 ATB, by state" />
             </tbody>
           </table>
         </div>
@@ -221,10 +221,11 @@ export default function ArchitecturePage() {
           <StackCard
             title="Infrastructure"
             items={[
-              { label: 'Containerization', value: 'Docker + Docker Compose' },
-              { label: 'Reverse proxy', value: 'Nginx (production)' },
+              { label: 'Frontend', value: 'Netlify (static export)' },
+              { label: 'Backend API', value: 'Render (free tier)' },
+              { label: 'Reverse proxy', value: 'Nginx (local dev)' },
               { label: 'Testing', value: 'pytest + httpx (155 tests)' },
-              { label: 'Deployment', value: 'Standalone Next.js + FastAPI' },
+              { label: 'CI/CD', value: 'Auto-deploy on git push' },
             ]}
           />
         </div>
@@ -259,7 +260,7 @@ export default function ArchitecturePage() {
           </li>
           <li className="flex items-start gap-2">
             <ChevronRight className="w-4 h-4 mt-0.5 text-gray-400 flex-shrink-0" />
-            <span><strong>FAA height restrictions:</strong> Airports have glare/height restrictions on nearby solar installations that this tool does not account for.</span>
+            <span><strong>FAA glare considerations:</strong> Buildings near airports may face FAA glare restrictions on solar installations. This tool displays a glare risk indicator (high/moderate/low) based on distance from the airport, but does not perform a full FAA Solar Glare Hazard Analysis.</span>
           </li>
           <li className="flex items-start gap-2">
             <ChevronRight className="w-4 h-4 mt-0.5 text-gray-400 flex-shrink-0" />
@@ -270,6 +271,52 @@ export default function ArchitecturePage() {
             <span><strong>Building data gaps:</strong> ML-derived footprints may miss some structures. OSM supplementation helps but doesn&apos;t guarantee 100% coverage.</span>
           </li>
         </ul>
+      </Section>
+
+      {/* Data Freshness */}
+      <Section title="Data Freshness" icon={<Calendar className="w-5 h-5" />}>
+        <p className="mb-4">
+          All data sources are periodically updated to reflect the latest available figures.
+          The most recent update was performed in <strong>June 2025</strong>.
+        </p>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-gray-200 dark:border-gray-700">
+                <th className="text-left py-2 px-3 font-semibold text-gray-900 dark:text-gray-100">Dataset</th>
+                <th className="text-left py-2 px-3 font-semibold text-gray-900 dark:text-gray-100">Vintage</th>
+                <th className="text-left py-2 px-3 font-semibold text-gray-900 dark:text-gray-100">Update Frequency</th>
+              </tr>
+            </thead>
+            <tbody className="text-gray-700 dark:text-gray-300">
+              <tr className="border-b border-gray-100 dark:border-gray-700">
+                <td className="py-2 px-3">NREL ATB Capacity Factors</td>
+                <td className="py-2 px-3 font-mono text-xs">2024</td>
+                <td className="py-2 px-3 text-xs">Annual (solar resource doesn&apos;t change year-to-year)</td>
+              </tr>
+              <tr className="border-b border-gray-100 dark:border-gray-700">
+                <td className="py-2 px-3">EPA eGRID CO₂ Rates</td>
+                <td className="py-2 px-3 font-mono text-xs">2023</td>
+                <td className="py-2 px-3 text-xs">Annual (published ~12 months after data year)</td>
+              </tr>
+              <tr className="border-b border-gray-100 dark:border-gray-700">
+                <td className="py-2 px-3">EIA Electricity Prices</td>
+                <td className="py-2 px-3 font-mono text-xs">2024</td>
+                <td className="py-2 px-3 text-xs">Annual</td>
+              </tr>
+              <tr className="border-b border-gray-100 dark:border-gray-700">
+                <td className="py-2 px-3">SEIA Install Costs</td>
+                <td className="py-2 px-3 font-mono text-xs">Q1 2025</td>
+                <td className="py-2 px-3 text-xs">Quarterly</td>
+              </tr>
+              <tr className="border-b border-gray-100 dark:border-gray-700">
+                <td className="py-2 px-3">Building Footprints</td>
+                <td className="py-2 px-3 font-mono text-xs">2023</td>
+                <td className="py-2 px-3 text-xs">Cached; re-downloadable as source updates</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </Section>
 
       {/* Footer */}

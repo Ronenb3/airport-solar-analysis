@@ -1,15 +1,59 @@
 'use client';
 
-import { X, Zap, DollarSign, Leaf, MapPin, Ruler, Calendar, TrendingUp, Shield, EyeOff, Trash2, Pencil, Building2 } from 'lucide-react';
+import { X, Zap, DollarSign, Leaf, MapPin, Ruler, Calendar, TrendingUp, Shield, EyeOff, Trash2, Pencil, Building2, AlertTriangle, CheckCircle, Info } from 'lucide-react';
+
+interface StateContext {
+  elec_price?: number;
+  net_metering?: { policy: string; label: string; detail: string };
+  co2_rate?: number;
+}
 
 interface BuildingDetailPanelProps {
   buildings: any[];
   onClose: () => void;
   onHide?: (buildings: any[]) => void;
   onRemoveCustom?: (id: string) => void;
+  stateContext?: StateContext;
 }
 
-export function BuildingDetailPanel({ buildings, onClose, onHide, onRemoveCustom }: BuildingDetailPanelProps) {
+function GlareRiskBadge({ risk }: { risk?: string }) {
+  if (!risk) return null;
+  const config: Record<string, { bg: string; text: string; icon: any; label: string }> = {
+    high: { bg: 'bg-red-100 dark:bg-red-900/30', text: 'text-red-700 dark:text-red-400', icon: AlertTriangle, label: 'High Glare Risk' },
+    moderate: { bg: 'bg-amber-100 dark:bg-amber-900/30', text: 'text-amber-700 dark:text-amber-400', icon: AlertTriangle, label: 'Moderate Glare Risk' },
+    low: { bg: 'bg-green-100 dark:bg-green-900/30', text: 'text-green-700 dark:text-green-400', icon: CheckCircle, label: 'Low Glare Risk' },
+  };
+  const c = config[risk] || config.low;
+  const Icon = c.icon;
+  return (
+    <span className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full ${c.bg} ${c.text}`}>
+      <Icon className="w-3 h-3" />
+      {c.label}
+    </span>
+  );
+}
+
+function NetMeteringBadge({ netMetering }: { netMetering?: { policy: string; label: string; detail: string } }) {
+  if (!netMetering) return null;
+  const colorMap: Record<string, { bg: string; text: string; border: string }> = {
+    full: { bg: 'bg-green-50 dark:bg-green-900/20', text: 'text-green-700 dark:text-green-400', border: 'border-green-200 dark:border-green-800' },
+    reduced: { bg: 'bg-amber-50 dark:bg-amber-900/20', text: 'text-amber-700 dark:text-amber-400', border: 'border-amber-200 dark:border-amber-800' },
+    varies: { bg: 'bg-gray-50 dark:bg-gray-700/50', text: 'text-gray-600 dark:text-gray-400', border: 'border-gray-200 dark:border-gray-700' },
+    none: { bg: 'bg-gray-50 dark:bg-gray-700/50', text: 'text-gray-600 dark:text-gray-400', border: 'border-gray-200 dark:border-gray-700' },
+  };
+  const style = colorMap[netMetering.policy] || colorMap.varies;
+  return (
+    <div className={`${style.bg} ${style.border} border rounded-lg px-3 py-2 text-xs`}>
+      <div className={`font-semibold ${style.text} flex items-center gap-1`}>
+        <Zap className="w-3 h-3" />
+        Net Metering: {netMetering.label}
+      </div>
+      <div className="text-gray-500 dark:text-gray-400 mt-0.5">{netMetering.detail}</div>
+    </div>
+  );
+}
+
+export function BuildingDetailPanel({ buildings, onClose, onHide, onRemoveCustom, stateContext }: BuildingDetailPanelProps) {
   if (!buildings || buildings.length === 0) return null;
 
   const isMulti = buildings.length > 1;
@@ -132,6 +176,9 @@ export function BuildingDetailPanel({ buildings, onClose, onHide, onRemoveCustom
             </div>
           </div>
 
+          {/* Net Metering */}
+          <NetMeteringBadge netMetering={stateContext?.net_metering} />
+
           {/* Environmental */}
           <div className="bg-emerald-50 dark:bg-emerald-900/20 rounded-xl p-4">
             <div className="flex items-center gap-2 mb-3">
@@ -225,6 +272,11 @@ export function BuildingDetailPanel({ buildings, onClose, onHide, onRemoveCustom
               </div>
             </div>
           </div>
+          {building.glare_risk && (
+            <div className="mt-2">
+              <GlareRiskBadge risk={building.glare_risk} />
+            </div>
+          )}
         </div>
 
         {/* Roof Area */}
@@ -325,6 +377,9 @@ export function BuildingDetailPanel({ buildings, onClose, onHide, onRemoveCustom
           </div>
         </div>
 
+        {/* Net Metering */}
+        <NetMeteringBadge netMetering={stateContext?.net_metering} />
+
         {/* Environmental */}
         <div className="bg-emerald-50 dark:bg-emerald-900/20 rounded-xl p-4">
           <div className="flex items-center gap-2 mb-3">
@@ -359,7 +414,7 @@ export function BuildingDetailPanel({ buildings, onClose, onHide, onRemoveCustom
         <div className="text-xs text-gray-400 dark:text-gray-500 pt-2">
           <p>Panel degradation: {((solar.degradation_rate || 0.005) * 100).toFixed(1)}%/yr &bull; Discount rate: {((solar.discount_rate || 0.06) * 100)}%</p>
           <p>Install cost: ${solar.cost_per_watt}/W &bull; O&M: $15/kW/yr</p>
-          <p>Sources: NREL 2023 ATB, SEIA 2025, EPA eGRID 2022</p>
+          <p>Sources: NREL 2024 ATB, SEIA 2025, EPA eGRID 2023, EIA 2024</p>
         </div>
 
         {/* Action Button */}

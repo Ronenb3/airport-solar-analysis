@@ -9,6 +9,13 @@ from fastapi import APIRouter, Query, HTTPException
 
 from services import calc_solar, calc_totals
 from services.data_loader import load_airports, get_buildings_for_airport
+from solar_constants import (
+    STATE_ELEC_PRICES,
+    DEFAULT_ELEC_PRICE,
+    STATE_NET_METERING,
+    DEFAULT_NET_METERING,
+    GLARE_RISK_THRESHOLDS,
+)
 
 router = APIRouter(prefix="/api", tags=["buildings"])
 logger = logging.getLogger(__name__)
@@ -46,12 +53,20 @@ def get_buildings(
             "error": "No buildings found",
         }
 
-    # Solar calcs per building
+    # Solar calcs per building + FAA glare risk
     for b in buildings:
         b["solar"] = calc_solar(
             b["area_m2"], airport["state"], usable_pct, panel_eff, elec_price,
             include_itc=include_itc,
         )
+        # FAA solar glare risk based on distance to airport center
+        dist = b.get("distance_km", 999)
+        if dist <= GLARE_RISK_THRESHOLDS["high"]:
+            b["glare_risk"] = "high"
+        elif dist <= GLARE_RISK_THRESHOLDS["moderate"]:
+            b["glare_risk"] = "moderate"
+        else:
+            b["glare_risk"] = "low"
 
     # Aggregate totals
     totals = calc_totals(
@@ -59,10 +74,18 @@ def get_buildings(
         include_itc=include_itc,
     )
 
+    # State-level metadata
+    state = airport["state"]
+    state_meta = {
+        "elec_price": STATE_ELEC_PRICES.get(state, DEFAULT_ELEC_PRICE),
+        "net_metering": STATE_NET_METERING.get(state, DEFAULT_NET_METERING),
+    }
+
     return {
         "airport": airport,
         "buildings": buildings,
         "totals": totals,
+        "state_context": state_meta,
         "parameters": {
             "radius_km": radius,
             "min_size_m2": min_size,

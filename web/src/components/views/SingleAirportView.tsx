@@ -201,6 +201,8 @@ export function SingleAirportView({ data, radius, onExportCSV, selectedBuildings
               <span className="flex items-center gap-1"><span className="w-3 h-3 bg-green-500 rounded-sm" /> Large ({'>'}50%)</span>
               <span className="flex items-center gap-1"><span className="w-3 h-3 bg-lime-500 rounded-sm" /> Medium (20-50%)</span>
               <span className="flex items-center gap-1"><span className="w-3 h-3 bg-yellow-400 rounded-sm" /> Smaller ({'<'}20%)</span>
+              <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-sm border-2 border-red-500" /> High Glare</span>
+              <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-sm border-2 border-amber-500" /> Mod. Glare</span>
             </div>
           </div>
           {/* Custom buildings banner */}

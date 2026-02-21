@@ -22,6 +22,7 @@ interface Building {
   lon: number;
   isCustom?: boolean;
   id?: string;
+  glare_risk?: 'high' | 'moderate' | 'low';
   solar?: {
     capacity_kw: number;
     annual_mwh: number;
@@ -242,15 +243,23 @@ function BuildingMapComponent({ center, buildings, airportCode, radiusKm = 5, on
     return '#facc15';
   };
 
+  const getBorderColor = (glareRisk?: string, isCustom?: boolean) => {
+    if (isCustom) return '#7c3aed';
+    if (glareRisk === 'high') return '#ef4444';   // red
+    if (glareRisk === 'moderate') return '#f59e0b'; // amber
+    return '#000';
+  };
+
   const styleFeature = (feature: any) => {
     const area = feature.properties?.area_m2 || 1000;
     const isCustom = feature.properties?.isCustom;
+    const glareRisk = feature.properties?.glare_risk;
     const bKey = `${feature.properties?.lat}_${feature.properties?.lon}_${feature.properties?.area_m2}`;
     const isSelected = selectedKeys && selectedKeys.has(bKey);
     return {
       fillColor: isSelected ? '#3b82f6' : getColor(area, isCustom),
-      color: isSelected ? '#1d4ed8' : isCustom ? '#7c3aed' : '#000',
-      weight: isSelected ? 3 : isCustom ? 2 : 1,
+      color: isSelected ? '#1d4ed8' : getBorderColor(glareRisk, isCustom),
+      weight: isSelected ? 3 : (glareRisk === 'high' || glareRisk === 'moderate') ? 2.5 : isCustom ? 2 : 1,
       fillOpacity: isSelected ? 0.85 : 0.7,
     };
   };
@@ -259,11 +268,17 @@ function BuildingMapComponent({ center, buildings, airportCode, radiusKm = 5, on
     const props = feature.properties;
     if (props) {
       const customLabel = props.isCustom ? '<br/><em style="color:#8b5cf6">Custom building</em>' : '';
+      const glareLabel = props.glare_risk === 'high'
+        ? '<br/><span style="color:#ef4444">⚠ High FAA glare risk</span>'
+        : props.glare_risk === 'moderate'
+        ? '<br/><span style="color:#f59e0b">⚠ Moderate glare risk</span>'
+        : '';
       layer.bindTooltip(
         `<div style="font-family: system-ui; font-size: 12px;">
           <strong>${props.area_m2?.toLocaleString()} m²</strong><br/>
           ${props.distance_km?.toFixed(2)} km from airport<br/>
           ${props.solar ? `${props.solar.capacity_kw?.toLocaleString()} kW` : ''}
+          ${glareLabel}
           ${customLabel}
         </div>`,
         { sticky: true }
@@ -296,6 +311,7 @@ function BuildingMapComponent({ center, buildings, airportCode, radiusKm = 5, on
         lon: b.lon,
         solar: b.solar,
         isCustom: b.isCustom || false,
+        glare_risk: b.glare_risk,
       },
       geometry: b.geometry,
     })),

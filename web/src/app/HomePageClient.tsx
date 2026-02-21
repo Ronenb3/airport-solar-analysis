@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { useQueryState, parseAsInteger, parseAsFloat, parseAsString } from 'nuqs';
 import useSWR from 'swr';
 import Link from 'next/link';
@@ -35,6 +35,8 @@ interface Airport {
   state: string;
   lat: number;
   lon: number;
+  elec_price?: number;
+  net_metering?: { policy: string; label: string; detail: string };
 }
 
 type ViewMode = 'single' | 'compare' | 'aggregate';
@@ -77,6 +79,22 @@ export default function HomePage() {
     const apt = airports.find(a => a.code === airportCode);
     return apt ? [apt.lat, apt.lon] : [33.6407, -84.4277];
   }, [airports, airportCode]);
+
+  // Auto-set electricity price when switching airports (state-specific price)
+  const prevAirportRef = useRef(airportCode);
+  useEffect(() => {
+    if (!airports || airportCode === prevAirportRef.current) {
+      prevAirportRef.current = airportCode;
+      return;
+    }
+    prevAirportRef.current = airportCode;
+    const apt = airports.find((a: Airport) => a.code === airportCode);
+    if (apt?.elec_price) {
+      // Round to nearest cent for slider step
+      const rounded = Math.round(apt.elec_price * 100) / 100;
+      setElecPriceQ(rounded);
+    }
+  }, [airports, airportCode, setElecPriceQ]);
 
   // Custom (user-drawn) buildings
   const { customBuildings, customCount, addBuilding, removeBuilding: removeCustomBuilding, removeAll: removeAllCustom } = useCustomBuildings(airportCode, airportCenter);
@@ -127,7 +145,7 @@ export default function HomePage() {
         const annualRevenue = annualKwh * price;
         const annualOm = capacityKw * 15;
         const payback = (annualRevenue - annualOm) > 0 ? installCost / (annualRevenue - annualOm) : 999;
-        const co2Rate = 0.386; // US average
+        const co2Rate = rawData.state_context?.co2_rate || rawData.totals?.co2_rate_kg_kwh || 0.348; // Use state rate from API
 
         return {
           ...cb,
@@ -412,13 +430,14 @@ export default function HomePage() {
             removeCustomBuilding(id);
             setSelectedBuildings([]);
           }}
+          stateContext={data?.state_context}
         />
       )}
 
       {/* Footer */}
       <footer className="mt-12 py-6 border-t border-gray-200 dark:border-gray-700 text-center text-sm text-gray-500 dark:text-gray-400">
         <p className="mb-2">
-          Data sources: Microsoft Building Footprints &bull; OpenStreetMap &bull; NREL 2023 ATB &bull; EPA eGRID 2022 &bull; SEIA 2025
+          Data sources: Microsoft Building Footprints &bull; OpenStreetMap &bull; NREL 2024 ATB &bull; EPA eGRID 2023 &bull; EIA 2024 &bull; SEIA 2025
         </p>
         <p className="text-xs">
           Estimates only. Actual solar potential depends on roof condition, orientation, shading, and local regulations.
