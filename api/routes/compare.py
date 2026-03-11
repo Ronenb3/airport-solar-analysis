@@ -23,6 +23,8 @@ def compare_airports(
     panel_eff: float = Query(200, ge=150, le=250),
     elec_price: float = Query(0.12, ge=0.05, le=0.25),
     include_itc: bool = Query(True),
+    rate_escalation: float = Query(0.02, ge=0.0, le=0.05),
+    financing: str = Query("cash"),
 ):
     """Compare multiple airports."""
     airport_codes = [c.strip().upper() for c in codes.split(",")[:8] if c.strip() and re.match(r'^[A-Za-z]{3,4}$', c.strip())]
@@ -44,6 +46,8 @@ def compare_airports(
             totals = calc_totals(
                 buildings, airport["state"], usable_pct, panel_eff, elec_price,
                 include_itc=include_itc,
+                rate_escalation=rate_escalation,
+                financing=financing if financing in ("cash", "loan") else "cash",
             )
             results.append({
                 "code": code,
@@ -76,6 +80,8 @@ def aggregate_all(
     panel_eff: float = Query(200, ge=150, le=250),
     elec_price: float = Query(0.12, ge=0.05, le=0.25),
     include_itc: bool = Query(True),
+    rate_escalation: float = Query(0.02, ge=0.0, le=0.05),
+    financing: str = Query("cash"),
 ):
     """Aggregate data for all airports."""
     airports_list = load_airports()
@@ -94,6 +100,8 @@ def aggregate_all(
             totals = calc_totals(
                 buildings, airport["state"], usable_pct, panel_eff, elec_price,
                 include_itc=include_itc,
+                rate_escalation=rate_escalation,
+                financing=financing if financing in ("cash", "loan") else "cash",
             )
             results.append({
                 "code": airport["code"],

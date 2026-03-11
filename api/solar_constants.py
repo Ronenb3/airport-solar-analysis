@@ -107,6 +107,37 @@ DEFAULT_DISCOUNT_RATE = 0.06  # 6%
 # O&M cost per kW/year (NREL 2024 ATB)
 OM_COST_PER_KW_YEAR = 15.0
 
+# Inverter cost per watt (NREL 2024 ATB — mid-life replacement at ~year 15)
+INVERTER_COST_PER_WATT = 0.10
+
+# Inverter replacement year (typical inverter lifespan is 12-15 years)
+INVERTER_REPLACEMENT_YEAR = 15
+
+# =============================================================================
+# FINANCING DEFAULTS
+# =============================================================================
+
+# Annual electricity rate escalation (EIA Annual Energy Outlook 2024)
+# Commercial electricity prices have historically risen ~2%/year
+RATE_ESCALATION = 0.02  # 2%/year
+
+# Loan interest rate (commercial solar, 2025 market)
+DEFAULT_LOAN_RATE = 0.065  # 6.5% APR
+
+# Loan term in years
+DEFAULT_LOAN_TERM = 25
+
+# Property tax rate per kW/year (varies by jurisdiction; $0 for many states with exemptions)
+PROPERTY_TAX_PER_KW_YEAR = 0.0
+
+# MACRS depreciation schedule (5-year for commercial solar under IRC § 168)
+# Year: depreciation fraction of depreciable basis
+# Depreciable basis = gross_cost * (1 - ITC_RATE/2)  [ITC reduces basis by half the credit]
+MACRS_5YR_SCHEDULE = [0.20, 0.32, 0.192, 0.1152, 0.1152, 0.0576]
+
+# Assumed marginal tax rate for commercial entity (for depreciation benefit)
+DEFAULT_TAX_RATE = 0.21  # Federal corporate rate
+
 # =============================================================================
 # ENVIRONMENTAL CONSTANTS
 # =============================================================================

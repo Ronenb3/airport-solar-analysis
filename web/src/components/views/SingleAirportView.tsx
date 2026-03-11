@@ -1,10 +1,11 @@
 'use client';
 
-import { Building2, Zap, DollarSign, MapPin, Home, Leaf, BarChart3, Download, TrendingUp, Shield, EyeOff, RotateCcw, Pencil, Trash2 } from 'lucide-react';
+import { Building2, Zap, DollarSign, MapPin, Home, Leaf, BarChart3, Download, TrendingUp, Shield, EyeOff, RotateCcw, Pencil, Trash2, Activity } from 'lucide-react';
 import { useState, useRef, useCallback, useMemo } from 'react';
 import dynamic from 'next/dynamic';
 import { MetricCard } from '@/components/MetricCard';
 import { DataTable } from '@/components/DataTable';
+import { CashflowChart } from '@/components/CashflowChart';
 
 const BuildingMap = dynamic(() => import('@/components/BuildingMap'), {
   ssr: false,
@@ -182,6 +183,49 @@ export function SingleAirportView({ data, radius, onExportCSV, selectedBuildings
             </div>
           </div>
         </div>
+      )}
+
+      {/* LCOE Comparison Row */}
+      {totals && totals.lcoe_solar != null && (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
+          <div className="bg-blue-50 dark:bg-blue-900/20 rounded-xl p-4 border border-blue-200 dark:border-blue-800">
+            <div className="text-sm text-blue-600 dark:text-blue-400 mb-1">Solar LCOE</div>
+            <div className="text-2xl font-bold text-blue-700 dark:text-blue-300">
+              ${totals.lcoe_solar?.toFixed(3)}<span className="text-sm font-normal">/kWh</span>
+            </div>
+          </div>
+          <div className="bg-red-50 dark:bg-red-900/20 rounded-xl p-4 border border-red-200 dark:border-red-800">
+            <div className="text-sm text-red-600 dark:text-red-400 mb-1">Grid LCOE</div>
+            <div className="text-2xl font-bold text-red-700 dark:text-red-300">
+              ${totals.lcoe_grid?.toFixed(3)}<span className="text-sm font-normal">/kWh</span>
+            </div>
+          </div>
+          <div className={`rounded-xl p-4 border ${(totals.lcoe_savings_pct || 0) > 0 ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800' : 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800'}`}>
+            <div className={`text-sm mb-1 ${(totals.lcoe_savings_pct || 0) > 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+              {(totals.lcoe_savings_pct || 0) > 0 ? 'Solar Cheaper By' : 'Grid Cheaper By'}
+            </div>
+            <div className={`text-2xl font-bold ${(totals.lcoe_savings_pct || 0) > 0 ? 'text-green-700 dark:text-green-300' : 'text-red-700 dark:text-red-300'}`}>
+              {Math.abs(totals.lcoe_savings_pct || 0).toFixed(0)}%
+            </div>
+          </div>
+          <div className={`rounded-xl p-4 border ${(totals.lifetime_savings || 0) >= 0 ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800' : 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800'}`}>
+            <div className={`text-sm mb-1 ${(totals.lifetime_savings || 0) >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>25-Year Savings</div>
+            <div className={`text-2xl font-bold ${(totals.lifetime_savings || 0) >= 0 ? 'text-green-700 dark:text-green-300' : 'text-red-700 dark:text-red-300'}`}>
+              ${((totals.lifetime_savings || 0) / 1e6).toFixed(1)}M
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Year-by-Year Cashflow Chart */}
+      {totals?.yearly_cashflow && totals.yearly_cashflow.length > 0 && (
+        <CashflowChart
+          yearlyData={totals.yearly_cashflow}
+          lcoe_solar={totals.lcoe_solar || 0}
+          lcoe_grid={totals.lcoe_grid || 0}
+          paybackYear={totals.payback_years}
+          lifetimeSavings={totals.lifetime_savings || 0}
+        />
       )}
 
       {/* Map */}

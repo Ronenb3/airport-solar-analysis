@@ -11,6 +11,7 @@ interface ApiErrorProps {
 export function ApiError({ error, message, onRetry }: ApiErrorProps) {
   const errorMessage = message || error?.message || 'Failed to load data';
   const is404 = error?.status === 404;
+  const is502 = error?.status === 502 || error?.status === 503;
   const isTimeout = errorMessage.includes('timeout') || errorMessage.includes('timed out');
   const isNetwork = errorMessage.includes('network') || errorMessage.includes('fetch');
 
@@ -25,12 +26,14 @@ export function ApiError({ error, message, onRetry }: ApiErrorProps) {
       </div>
       
       <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-2">
-        {is404 ? 'No Data Available' : isTimeout ? 'Request Timeout' : 'Unable to Load Data'}
+        {is404 ? 'No Data Available' : is502 ? 'Server is Starting Up' : isTimeout ? 'Request Timeout' : 'Unable to Load Data'}
       </h3>
       
       <p className="text-gray-600 dark:text-gray-400 mb-6 max-w-md mx-auto">
         {is404 ? (
           'Building data is not available for this airport. We currently have data for airports in CA, TX, FL, AZ, IL, GA, and CO.'
+        ) : is502 ? (
+          'The API server is waking up — this typically takes 10–30 seconds on the first visit. Click "Try Again" or wait a moment and refresh.'
         ) : isTimeout ? (
           'The request took too long to complete. The airport may have a large number of buildings. Try reducing the search radius or increasing the minimum building size.'
         ) : isNetwork ? (

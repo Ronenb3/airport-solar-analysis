@@ -30,6 +30,8 @@ def get_buildings(
     panel_eff: float = Query(200, ge=150, le=250, description="Panel efficiency W/m²"),
     elec_price: float = Query(0.12, ge=0.05, le=0.25, description="Electricity price $/kWh"),
     include_itc: bool = Query(True, description="Include 30% federal ITC"),
+    rate_escalation: float = Query(0.02, ge=0.0, le=0.05, description="Annual electricity price escalation rate"),
+    financing: str = Query("cash", description="Financing mode: cash or loan"),
 ):
     """Get buildings near an airport with solar calculations."""
     # Validate airport code format (defense-in-depth against path traversal)
@@ -53,11 +55,18 @@ def get_buildings(
             "error": "No buildings found",
         }
 
+    # Validate financing param
+    financing = financing.lower()
+    if financing not in ("cash", "loan"):
+        financing = "cash"
+
     # Solar calcs per building + FAA glare risk
     for b in buildings:
         b["solar"] = calc_solar(
             b["area_m2"], airport["state"], usable_pct, panel_eff, elec_price,
             include_itc=include_itc,
+            rate_escalation=rate_escalation,
+            financing=financing,
         )
         # FAA solar glare risk based on distance to airport center
         dist = b.get("distance_km", 999)
@@ -72,6 +81,8 @@ def get_buildings(
     totals = calc_totals(
         buildings, airport["state"], usable_pct, panel_eff, elec_price,
         include_itc=include_itc,
+        rate_escalation=rate_escalation,
+        financing=financing,
     )
 
     # State-level metadata
@@ -93,5 +104,7 @@ def get_buildings(
             "panel_eff": panel_eff,
             "elec_price": elec_price,
             "include_itc": include_itc,
+            "rate_escalation": rate_escalation,
+            "financing": financing,
         },
     }

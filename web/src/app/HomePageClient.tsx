@@ -18,9 +18,14 @@ import { SingleAirportView } from '@/components/views/SingleAirportView';
 import { CompareView } from '@/components/views/CompareView';
 import { AggregateView } from '@/components/views/AggregateView';
 
-// SWR fetcher
-const fetcher = async (url: string) => {
+// SWR fetcher with auto-retry for Render cold-start 502s
+const fetcher = async (url: string, retries = 2): Promise<any> => {
   const res = await fetch(url);
+  if (res.status === 502 && retries > 0) {
+    // Render free tier cold-start — wait and retry
+    await new Promise(r => setTimeout(r, 3000));
+    return fetcher(url, retries - 1);
+  }
   if (!res.ok) {
     const error = new Error(`API error: ${res.status} ${res.statusText}`);
     (error as any).status = res.status;
@@ -52,6 +57,8 @@ export default function HomePage() {
   const [usablePct, setUsablePct] = useQueryState('usable', parseAsInteger.withDefault(65));
   const [panelEff, setPanelEff] = useQueryState('eff', parseAsInteger.withDefault(200));
   const [elecPriceQ, setElecPriceQ] = useQueryState('price', parseAsFloat.withDefault(0.12));
+  const [rateEscalation, setRateEscalation] = useQueryState('escalation', parseAsFloat.withDefault(0.02));
+  const [financing, setFinancing] = useQueryState('financing', parseAsString.withDefault('cash'));
 
   // Local UI state
   const [showEquations, setShowEquations] = useState(false);
@@ -72,6 +79,11 @@ export default function HomePage() {
 
   // Fetch airports list
   const { data: airports } = useSWR<Airport[]>('/api/airports', fetcher);
+
+  // Warm up Render backend on first load (fire-and-forget)
+  useEffect(() => {
+    fetch('/api/health').catch(() => {});
+  }, []);
 
   // Find airport center for custom buildings
   const airportCenter: [number, number] = useMemo(() => {
@@ -101,7 +113,7 @@ export default function HomePage() {
 
   // Build API URL
   const apiUrl = useMemo(() => {
-    const params = `radius=${radius}&min_size=${minSize}&usable_pct=${(usablePct || 65) / 100}&panel_eff=${panelEff || 200}&elec_price=${elecPriceQ || 0.12}`;
+    const params = `radius=${radius}&min_size=${minSize}&usable_pct=${(usablePct || 65) / 100}&panel_eff=${panelEff || 200}&elec_price=${elecPriceQ || 0.12}&rate_escalation=${rateEscalation || 0.02}&financing=${financing || 'cash'}`;
     if (viewMode === 'single') {
       return `/api/buildings/${airportCode}?${params}`;
     } else if (viewMode === 'compare' && compareCodes) {
@@ -110,7 +122,7 @@ export default function HomePage() {
       return `/api/aggregate?${params}`;
     }
     return null;
-  }, [viewMode, airportCode, compareCodes, radius, minSize, usablePct, panelEff, elecPriceQ]);
+  }, [viewMode, airportCode, compareCodes, radius, minSize, usablePct, panelEff, elecPriceQ, rateEscalation, financing]);
 
   const { data: rawData, error, isLoading, mutate } = useSWR(apiUrl, fetcher, {
     revalidateOnFocus: false,
@@ -363,6 +375,34 @@ export default function HomePage() {
               tooltip="Average commercial electricity rate. US average ~$0.13/kWh (EIA 2024)."
             />
           </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-3">
+            <Slider
+              label="Rate Escalation"
+              value={rateEscalation || 0.02}
+              onChange={(v) => setRateEscalation(v)}
+              min={0} max={0.05} step={0.005} unit="%/yr"
+              format={(v) => `${(v * 100).toFixed(1)}%`}
+              tooltip="Annual electricity price increase. US historical average ~2%/yr (EIA)."
+            />
+            <div>
+              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Financing</label>
+              <div className="flex bg-gray-100 dark:bg-gray-700 rounded-lg p-1">
+                {(['cash', 'loan'] as const).map((mode) => (
+                  <button
+                    key={mode}
+                    onClick={() => setFinancing(mode)}
+                    className={`flex-1 px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
+                      (financing || 'cash') === mode
+                        ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-gray-100 shadow-sm'
+                        : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100'
+                    }`}
+                  >
+                    {mode === 'cash' ? 'Cash Purchase' : 'Loan (6.5%/25yr)'}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
         </div>
 
         {showEquations && (
@@ -371,6 +411,7 @@ export default function HomePage() {
             panelEff={panelEff || 200}
             elecPrice={elecPriceQ || 0.12}
             capacityFactor={data?.totals?.capacity_factor || 0.168}
+            rateEscalation={rateEscalation || 0.02}
           />
         )}
       </div>
@@ -441,7 +482,8 @@ export default function HomePage() {
         </p>
         <p className="text-xs">
           Estimates only. Actual solar potential depends on roof condition, orientation, shading, and local regulations.
-          Includes 30% federal ITC, 0.5%/yr degradation, $15/kW/yr O&M. Consult a solar professional for accurate assessments.
+          Includes 30% federal ITC, 0.5%/yr degradation, $15/kW/yr O&M, inverter replacement at yr 15, MACRS depreciation, and {((rateEscalation || 0.02) * 100).toFixed(0)}%/yr rate escalation.
+          Consult a solar professional for accurate assessments.
         </p>
       </footer>
     </main>

@@ -377,6 +377,61 @@ export function BuildingDetailPanel({ buildings, onClose, onHide, onRemoveCustom
           </div>
         </div>
 
+        {/* LCOE Comparison */}
+        {solar.lcoe_solar != null && (
+          <div className="bg-indigo-50 dark:bg-indigo-900/20 rounded-xl p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <TrendingUp className="w-4 h-4 text-indigo-600" />
+              <span className="text-sm font-medium text-gray-900 dark:text-gray-100">LCOE Comparison</span>
+            </div>
+            <div className="grid grid-cols-2 gap-3 text-sm mb-3">
+              <div>
+                <span className="text-gray-500 dark:text-gray-400">Solar LCOE</span>
+                <div className="text-xl font-bold text-blue-700 dark:text-blue-400">
+                  ${solar.lcoe_solar?.toFixed(3)}<span className="text-xs font-normal">/kWh</span>
+                </div>
+              </div>
+              <div>
+                <span className="text-gray-500 dark:text-gray-400">Grid LCOE</span>
+                <div className="text-xl font-bold text-red-600 dark:text-red-400">
+                  ${solar.lcoe_grid?.toFixed(3)}<span className="text-xs font-normal">/kWh</span>
+                </div>
+              </div>
+            </div>
+            {solar.lcoe_savings_pct != null && (
+              <div className={`text-center text-sm font-semibold px-3 py-1.5 rounded-lg ${
+                solar.lcoe_savings_pct > 0
+                  ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400'
+                  : 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400'
+              }`}>
+                {solar.lcoe_savings_pct > 0
+                  ? `Solar is ${solar.lcoe_savings_pct.toFixed(0)}% cheaper than grid`
+                  : `Grid is ${Math.abs(solar.lcoe_savings_pct).toFixed(0)}% cheaper than solar`}
+              </div>
+            )}
+            {solar.lifetime_savings != null && (
+              <div className="flex justify-between text-sm mt-2 pt-2 border-t border-indigo-200 dark:border-indigo-800">
+                <span className="text-gray-500 dark:text-gray-400">25-Year Savings vs Grid</span>
+                <span className={`font-bold ${solar.lifetime_savings >= 0 ? 'text-green-700 dark:text-green-400' : 'text-red-600'}`}>
+                  ${solar.lifetime_savings?.toLocaleString()}
+                </span>
+              </div>
+            )}
+            {solar.macrs_benefit > 0 && (
+              <div className="flex justify-between text-sm mt-1">
+                <span className="text-gray-500 dark:text-gray-400">MACRS Depreciation</span>
+                <span className="font-semibold text-green-600">-${solar.macrs_benefit?.toLocaleString()}</span>
+              </div>
+            )}
+            {solar.inverter_replacement_cost > 0 && (
+              <div className="flex justify-between text-sm mt-1">
+                <span className="text-gray-500 dark:text-gray-400">Inverter (Year {solar.inverter_replacement_year || 15})</span>
+                <span className="font-semibold text-gray-900 dark:text-gray-100">${solar.inverter_replacement_cost?.toLocaleString()}</span>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Net Metering */}
         <NetMeteringBadge netMetering={stateContext?.net_metering} />
 
@@ -413,7 +468,8 @@ export function BuildingDetailPanel({ buildings, onClose, onHide, onRemoveCustom
         {/* Assumptions */}
         <div className="text-xs text-gray-400 dark:text-gray-500 pt-2">
           <p>Panel degradation: {((solar.degradation_rate || 0.005) * 100).toFixed(1)}%/yr &bull; Discount rate: {((solar.discount_rate || 0.06) * 100)}%</p>
-          <p>Install cost: ${solar.cost_per_watt}/W &bull; O&M: $15/kW/yr</p>
+          <p>Install cost: ${solar.cost_per_watt}/W &bull; O&M: $15/kW/yr &bull; Rate escalation: {((solar.rate_escalation || 0.02) * 100).toFixed(0)}%/yr</p>
+          <p>Inverter replacement at yr 15 &bull; MACRS 5-yr depreciation &bull; {solar.financing === 'loan' ? `Loan: ${(solar.loan_rate * 100).toFixed(1)}% / ${solar.loan_term}yr` : 'Cash purchase'}</p>
           <p>Sources: NREL 2024 ATB, SEIA 2025, EPA eGRID 2023, EIA 2024</p>
         </div>
 

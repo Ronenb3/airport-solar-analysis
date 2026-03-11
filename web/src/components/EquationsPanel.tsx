@@ -9,9 +9,10 @@ interface EquationsPanelProps {
   capacityFactor: number;
   costPerWatt?: number;
   itcRate?: number;
+  rateEscalation?: number;
 }
 
-export function EquationsPanel({ usablePct, panelEff, elecPrice, capacityFactor, costPerWatt = 1.40, itcRate = 0.30 }: EquationsPanelProps) {
+export function EquationsPanel({ usablePct, panelEff, elecPrice, capacityFactor, costPerWatt = 1.40, itcRate = 0.30, rateEscalation = 0.02 }: EquationsPanelProps) {
   // Example calculation for a 10,000 m² building
   const example = useMemo(() => {
     const area = 10000;
@@ -23,9 +24,37 @@ export function EquationsPanel({ usablePct, panelEff, elecPrice, capacityFactor,
     const itcCredit = grossCost * itcRate;
     const netCost = grossCost - itcCredit;
     const payback = netCost / revenue;
-    
-    return { area, usable, capacity, energy, revenue, grossCost, itcCredit, netCost, payback };
-  }, [usablePct, panelEff, elecPrice, capacityFactor, costPerWatt, itcRate]);
+
+    // LCOE calculation (simplified - 25 year, 6% discount)
+    const discountRate = 0.06;
+    const degradation = 0.005;
+    let totalDiscountedCost = netCost; // upfront
+    let totalDiscountedKwh = 0;
+    let totalGridCostDiscounted = 0;
+    const omPerYear = capacity * 15; // $15/kW/yr
+    const inverterCost = capacity * 1000 * 0.10;
+
+    for (let yr = 1; yr <= 25; yr++) {
+      const discount = Math.pow(1 + discountRate, yr);
+      const degradFactor = Math.pow(1 - degradation, yr - 1);
+      const yearKwh = energy * degradFactor;
+      const gridRate = elecPrice * Math.pow(1 + rateEscalation, yr - 1);
+
+      let yearCost = omPerYear;
+      if (yr === 15) yearCost += inverterCost;
+      totalDiscountedCost += yearCost / discount;
+      totalDiscountedKwh += yearKwh / discount;
+      totalGridCostDiscounted += (yearKwh * gridRate) / discount;
+    }
+
+    const lcoeSolar = totalDiscountedKwh > 0 ? totalDiscountedCost / totalDiscountedKwh : 0;
+    const lcoeGrid = totalDiscountedKwh > 0 ? totalGridCostDiscounted / totalDiscountedKwh : elecPrice;
+
+    // Year 25 grid rate
+    const gridRateYr25 = elecPrice * Math.pow(1 + rateEscalation, 24);
+
+    return { area, usable, capacity, energy, revenue, grossCost, itcCredit, netCost, payback, lcoeSolar, lcoeGrid, gridRateYr25 };
+  }, [usablePct, panelEff, elecPrice, capacityFactor, costPerWatt, itcRate, rateEscalation]);
 
   return (
     <div className="mt-4 pt-4 border-t border-gray-100 dark:border-gray-700">
@@ -74,6 +103,29 @@ export function EquationsPanel({ usablePct, panelEff, elecPrice, capacityFactor,
             </div>
             <div className="ml-4 text-gray-600 dark:text-gray-400 font-mono text-xs">
               Payback = (Gross Cost − ITC Credit) ÷ Annual Revenue
+            </div>
+          </div>
+
+          <div>
+            <span className="font-medium text-gray-900 dark:text-gray-100">Step 6: Grid Rate Escalation</span>
+            <div className="ml-4 text-gray-600 dark:text-gray-400 font-mono text-xs">
+              Grid Rate (Year n) = ${elecPrice.toFixed(2)} × (1 + {(rateEscalation * 100).toFixed(0)}%)^(n−1)
+            </div>
+            <div className="ml-4 text-gray-500 dark:text-gray-500 font-mono text-xs">
+              (Grid electricity gets {(rateEscalation * 100).toFixed(0)}% more expensive each year — EIA historical trend)
+            </div>
+          </div>
+
+          <div>
+            <span className="font-medium text-gray-900 dark:text-gray-100">Step 7: LCOE — Levelized Cost of Energy</span>
+            <div className="ml-4 text-gray-600 dark:text-gray-400 font-mono text-xs">
+              LCOE = Σ(Yearly Costs ÷ (1+r)^n) ÷ Σ(Yearly kWh ÷ (1+r)^n)
+            </div>
+            <div className="ml-4 text-gray-500 dark:text-gray-500 font-mono text-xs">
+              (All costs & energy discounted at 6%. Includes O&M, inverter replacement at yr 15, MACRS depreciation.)
+            </div>
+            <div className="ml-4 text-gray-500 dark:text-gray-500 font-mono text-xs">
+              Lower LCOE = cheaper electricity. Compare solar LCOE vs grid LCOE to see which wins.
             </div>
           </div>
         </div>
@@ -132,6 +184,30 @@ export function EquationsPanel({ usablePct, panelEff, elecPrice, capacityFactor,
                   <td className="py-2 px-2 text-gray-700 dark:text-gray-300">Payback</td>
                   <td className="py-2 px-2 text-gray-600 dark:text-gray-400 font-mono">${Math.round(example.netCost).toLocaleString()} ÷ ${Math.round(example.revenue).toLocaleString()}</td>
                   <td className="py-2 px-2 text-right font-semibold text-solar-green">{example.payback.toFixed(1)} years</td>
+                </tr>
+                <tr className="border-t border-gray-200 dark:border-gray-700 bg-blue-50 dark:bg-blue-900/10">
+                  <td className="py-2 px-2 text-gray-700 dark:text-gray-300">Grid Rate (Yr 25)</td>
+                  <td className="py-2 px-2 text-gray-600 dark:text-gray-400 font-mono">${elecPrice.toFixed(2)} × (1+{(rateEscalation*100).toFixed(0)}%)^24</td>
+                  <td className="py-2 px-2 text-right font-semibold text-red-600">${example.gridRateYr25.toFixed(3)}/kWh</td>
+                </tr>
+                <tr className="bg-blue-50 dark:bg-blue-900/10">
+                  <td className="py-2 px-2 text-gray-700 dark:text-gray-300">Solar LCOE</td>
+                  <td className="py-2 px-2 text-gray-600 dark:text-gray-400 font-mono">Σ costs ÷ Σ kWh (25yr, 6%)</td>
+                  <td className="py-2 px-2 text-right font-semibold text-blue-600">${example.lcoeSolar.toFixed(3)}/kWh</td>
+                </tr>
+                <tr className="bg-blue-50 dark:bg-blue-900/10">
+                  <td className="py-2 px-2 text-gray-700 dark:text-gray-300">Grid LCOE</td>
+                  <td className="py-2 px-2 text-gray-600 dark:text-gray-400 font-mono">Σ grid costs ÷ Σ kWh (25yr, 6%)</td>
+                  <td className="py-2 px-2 text-right font-semibold text-red-600">${example.lcoeGrid.toFixed(3)}/kWh</td>
+                </tr>
+                <tr className="bg-green-50 dark:bg-green-900/10">
+                  <td className="py-2 px-2 font-medium text-gray-900 dark:text-gray-100">Verdict</td>
+                  <td className="py-2 px-2 text-gray-600 dark:text-gray-400 font-mono" colSpan={1}>
+                    {example.lcoeSolar < example.lcoeGrid ? 'Solar wins by' : 'Grid wins by'}
+                  </td>
+                  <td className={`py-2 px-2 text-right font-bold ${example.lcoeSolar < example.lcoeGrid ? 'text-green-600' : 'text-red-600'}`}>
+                    {Math.abs((1 - example.lcoeSolar / example.lcoeGrid) * 100).toFixed(0)}%
+                  </td>
                 </tr>
               </tbody>
             </table>
