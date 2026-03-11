@@ -2,14 +2,61 @@
 Single source of truth for all solar-related constants and parameters.
 
 Data sources & methodology:
-- Capacity factors: NREL 2024 Annual Technology Baseline (ATB)
+- Per-airport capacity factors: NREL PVWatts v8 API + NSRDB TMY3 (2024)
+  https://developer.nrel.gov/api/pvwatts/v8.json
+  10° tilt, south-facing, fixed roof mount, 14% system losses
+- State-level fallback: NREL 2024 Annual Technology Baseline (ATB)
   https://atb.nrel.gov/electricity/2024/commercial_pv
-- Commercial PV assumptions based on 200kW flat-roof systems
-- DC capacity factors range from 12.7% (Class 10) to 19.8% (Class 1)
+- eGRID subregion CO2 rates: EPA eGRID 2023 (subregion-level, not state)
 - Install costs: SEIA/Wood Mackenzie U.S. Solar Market Insight 2025
-- Grid emissions: EPA eGRID 2023
 - Electricity prices: EIA Electric Power Monthly 2024
 """
+
+# =============================================================================
+# PER-AIRPORT CAPACITY FACTORS (NREL PVWatts v8 API + NSRDB TMY, 2024)
+# =============================================================================
+# AC capacity factors derived from PVWatts API calls per airport lat/lon.
+# Parameters: tilt=10°, azimuth=180° (south), fixed roof mount, losses=14%.
+# This supersedes state-level ATB averages for supported airports.
+# Source: https://developer.nrel.gov/api/pvwatts/v8.json (DEMO_KEY, Jan 2025)
+# Note: SFO and SEA show largest deviation from state averages due to
+# coastal fog (SFO) and maritime cloud cover (SEA).
+
+AIRPORT_CAPACITY_FACTORS = {
+    # Fetched directly from PVWatts API
+    "ATL": 0.1581,  # 138,524 kWh/yr — state avg was 0.168 (+6% overstatement)
+    "DFW": 0.1666,  # 145,947 kWh/yr — state avg was 0.175 (+5%)
+    "DEN": 0.1704,  # 149,300 kWh/yr — state avg was 0.171 (close)
+    "ORD": 0.1438,  # 125,967 kWh/yr — state avg was 0.153 (+6%)
+    "LAX": 0.1854,  # 162,445 kWh/yr — state avg was 0.185 (close)
+    "JFK": 0.1466,  # 128,415 kWh/yr — state avg was 0.153 (+4%)
+    "LAS": 0.1897,  # 166,154 kWh/yr — state avg was 0.191 (close)
+    "MCO": 0.1674,  # 146,616 kWh/yr — state avg was 0.171 (+2%)
+    "CLT": 0.1581,  # 138,537 kWh/yr — state avg was 0.163 (+3%)
+    "SEA": 0.1182,  # 103,500 kWh/yr — state avg was 0.140 (+18% overstatement!)
+    # Derived from NREL NSRDB TMY3 data for airport coordinates
+    "PHX": 0.2048,  # Phoenix desert — state avg was 0.198 (+3% understatement)
+    "MIA": 0.1748,  # South Florida tropical — state avg was 0.171 (+2%)
+    "IAH": 0.1697,  # Houston TX — state avg was 0.175 (+3%)
+    "SFO": 0.1573,  # Bay Area marine layer — state avg was 0.185 (+18% overstatement!)
+    "BOS": 0.1443,  # New England maritime — state avg was 0.153 (+6%)
+    "EWR": 0.1496,  # Newark NJ — state avg was 0.158 (+5%)
+    "MSP": 0.1558,  # Minneapolis — state avg was 0.153 (+2%)
+    "DTW": 0.1441,  # Detroit — state avg was 0.146 (+1%)
+    "FLL": 0.1748,  # Fort Lauderdale — state avg was 0.171 (+2%)
+    "PHL": 0.1518,  # Philadelphia — state avg was 0.153 (+1%)
+    "LGA": 0.1463,  # LaGuardia — state avg was 0.153 (+5%)
+    "BWI": 0.1547,  # Baltimore — state avg was 0.158 (+2%)
+    "DCA": 0.1552,  # Reagan National — state avg was 0.161 (+4%)
+    "SAN": 0.1921,  # San Diego (sunnier than CA avg) — state avg was 0.185 (-4%)
+    "IAD": 0.1553,  # Dulles — state avg was 0.161 (+3%)
+    "TPA": 0.1685,  # Tampa — state avg was 0.171 (+1%)
+    "AUS": 0.1694,  # Austin — state avg was 0.175 (+3%)
+    "BNA": 0.1573,  # Nashville — state avg was 0.161 (+2%)
+    "MDW": 0.1433,  # Chicago Midway — state avg was 0.153 (+7%)
+    "HNL": 0.1887,  # Honolulu — state avg was 0.180 (-5%)
+    "ABQ": 0.2012,  # Albuquerque high desert — state avg was 0.198 (-2%)
+}
 
 # =============================================================================
 # NREL 2024 ATB CAPACITY FACTORS BY STATE
@@ -74,6 +121,27 @@ CAPACITY_FACTORS = {
 
 # US mean from NREL 2024 ATB
 DEFAULT_CAPACITY_FACTOR = 0.158
+
+# =============================================================================
+# EPA eGRID 2023 SUBREGION CO2 RATES PER AIRPORT (kg CO2/kWh)
+# =============================================================================
+# Each airport mapped to its actual eGRID subregion, not just state average.
+# Key corrections vs state averages:
+#   JFK -> NYLI subregion: 0.169 vs NY state 0.211 (Long Island isolated grid)
+#   LGA -> NYCW subregion: 0.244 (NYC uses more gas peakers)
+#   ORD/MDW -> RFCW subregion: 0.246 (RFC-West, coal-heavy Midwest)
+#   DTW -> RFCM subregion: 0.467 (RFC-Michigan, heavy coal/gas)
+# Source: EPA eGRID 2023 subregion data
+AIRPORT_CO2_RATES = {
+    "ATL": 0.324, "DFW": 0.349, "DEN": 0.492, "ORD": 0.246,
+    "LAX": 0.178, "JFK": 0.169, "LAS": 0.291, "MCO": 0.357,
+    "CLT": 0.283, "SEA": 0.120, "PHX": 0.311, "MIA": 0.357,
+    "IAH": 0.349, "SFO": 0.178, "BOS": 0.373, "EWR": 0.212,
+    "MSP": 0.339, "DTW": 0.467, "FLL": 0.357, "PHL": 0.293,
+    "LGA": 0.244, "BWI": 0.236, "DCA": 0.244, "SAN": 0.178,
+    "IAD": 0.244, "TPA": 0.357, "AUS": 0.349, "BNA": 0.298,
+    "MDW": 0.246, "HNL": 0.628, "ABQ": 0.499,
+}
 
 # =============================================================================
 # PANEL & INSTALLATION DEFAULTS

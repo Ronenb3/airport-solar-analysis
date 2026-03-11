@@ -15,6 +15,8 @@ Inspired by professional-grade LCOE (Levelized Cost of Energy) modeling:
 import math
 
 from solar_constants import (
+    AIRPORT_CAPACITY_FACTORS,
+    AIRPORT_CO2_RATES,
     CAPACITY_FACTORS,
     DEFAULT_CAPACITY_FACTOR,
     INSTALL_COST_PER_WATT,
@@ -63,6 +65,8 @@ def calc_solar(
     financing: str = "cash",  # "cash" or "loan"
     loan_rate: float = DEFAULT_LOAN_RATE,
     loan_term: int = DEFAULT_LOAN_TERM,
+    airport_code: str = None,
+    shading_factor: float = 1.0,
 ) -> dict:
     """
     Calculate solar potential for a given roof area with full financial modeling.
@@ -104,8 +108,15 @@ def calc_solar(
     -------
     dict with comprehensive solar generation, financial, and comparison estimates.
     """
-    cf = CAPACITY_FACTORS.get(state, DEFAULT_CAPACITY_FACTOR)
-    co2_rate = STATE_CO2_RATES.get(state, GRID_CO2_KG_PER_KWH)
+    # Use per-airport PVWatts-derived CF if available, else fall back to state ATB
+    cf = AIRPORT_CAPACITY_FACTORS.get(airport_code) if airport_code else None
+    if cf is None:
+        cf = CAPACITY_FACTORS.get(state, DEFAULT_CAPACITY_FACTOR)
+    cf = cf * shading_factor  # Apply inter-building shading derating
+    # Use per-airport eGRID subregion CO2 rate if available
+    co2_rate = AIRPORT_CO2_RATES.get(airport_code) if airport_code else None
+    if co2_rate is None:
+        co2_rate = STATE_CO2_RATES.get(state, GRID_CO2_KG_PER_KWH)
 
     # --- Generation ---
     usable = area_m2 * usable_pct

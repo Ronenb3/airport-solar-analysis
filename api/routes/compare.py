@@ -48,6 +48,7 @@ def compare_airports(
                 include_itc=include_itc,
                 rate_escalation=rate_escalation,
                 financing=financing if financing in ("cash", "loan") else "cash",
+                airport_code=code,
             )
             results.append({
                 "code": code,
@@ -102,6 +103,7 @@ def aggregate_all(
                 include_itc=include_itc,
                 rate_escalation=rate_escalation,
                 financing=financing if financing in ("cash", "loan") else "cash",
+                airport_code=airport["code"],
             )
             results.append({
                 "code": airport["code"],

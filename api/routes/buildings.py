@@ -15,6 +15,8 @@ from solar_constants import (
     STATE_NET_METERING,
     DEFAULT_NET_METERING,
     GLARE_RISK_THRESHOLDS,
+    AIRPORT_CAPACITY_FACTORS,
+    DEFAULT_CAPACITY_FACTOR,
 )
 
 router = APIRouter(prefix="/api", tags=["buildings"])
@@ -60,14 +62,39 @@ def get_buildings(
     if financing not in ("cash", "loan"):
         financing = "cash"
 
-    # Solar calcs per building + FAA glare risk
+    # Solar calcs per building — using per-airport PVWatts capacity factors
+    # and simplified inter-building shading estimation
+    code_upper = airport_code.upper()
     for b in buildings:
+        # Simplified shading: if a neighbor within 80m has area > 3x this building
+        # it's likely taller and may partially shade morning/evening sun
+        shading_factor = 1.0
+        b_lat = b.get("lat", 0)
+        b_lon = b.get("lon", 0)
+        b_area = b.get("area_m2", 1)
+        large_neighbors = sum(
+            1 for other in buildings
+            if other is not b
+            and ((other.get("lat", 0) - b_lat) * 111000) ** 2
+               + ((other.get("lon", 0) - b_lon) * 111000 * 0.85) ** 2 < 80 ** 2
+            and other.get("area_m2", 0) > b_area * 3
+        )
+        if large_neighbors >= 3:
+            shading_factor = 0.93
+        elif large_neighbors >= 1:
+            shading_factor = 0.97
+
         b["solar"] = calc_solar(
             b["area_m2"], airport["state"], usable_pct, panel_eff, elec_price,
             include_itc=include_itc,
             rate_escalation=rate_escalation,
             financing=financing,
+            airport_code=code_upper,
+            shading_factor=shading_factor,
         )
+        if shading_factor < 1.0:
+            b["shading_factor"] = round(shading_factor, 2)
+
         # FAA solar glare risk based on distance to airport center
         dist = b.get("distance_km", 999)
         if dist <= GLARE_RISK_THRESHOLDS["high"]:
@@ -83,6 +110,7 @@ def get_buildings(
         include_itc=include_itc,
         rate_escalation=rate_escalation,
         financing=financing,
+        airport_code=code_upper,
     )
 
     # State-level metadata
