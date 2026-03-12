@@ -7,7 +7,7 @@ services:
     plan: free
     envVars:
       - key: CORS_ORIGINS
-        value: https://airport-solar-analysis.vercel.app,http://localhost:3000
+        value: https://charming-monstera-eab521.netlify.app,https://airport-solar-analysis.vercel.app,http://localhost:3000
       - key: RATE_LIMIT_ENABLED
         value: "true"
       - key: LOG_LEVEL

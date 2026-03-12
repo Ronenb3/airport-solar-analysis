@@ -20,9 +20,16 @@ from config import settings
 
 logger = logging.getLogger(__name__)
 
-# DATA_DIR: use DATA_DIR env var if set (for Docker), else resolve relative to source tree
+# DATA_DIR: use DATA_DIR env var if set and the path actually exists,
+# else resolve relative to source tree.
+# This guards against stale Docker-era env vars on native Python deployments.
 _env_data = os.environ.get("DATA_DIR")
-DATA_DIR = Path(_env_data) if _env_data else Path(__file__).parent.parent.parent / "data"
+_env_path = Path(_env_data) if _env_data else None
+_repo_data = Path(__file__).parent.parent.parent / "data"
+if _env_path and _env_path.exists():
+    DATA_DIR = _env_path
+else:
+    DATA_DIR = _repo_data
 BUILDINGS_DIR = DATA_DIR / "buildings"
 AIRPORT_CACHE_DIR = DATA_DIR / "airport_cache"
 AIRPORTS_FILE = DATA_DIR / "airports" / "top_30_airports.csv"
