@@ -124,24 +124,17 @@ def get_buildings(
 
     try:
         for b in buildings:
-            # Simplified shading: if a neighbor within 80m has area > 3x this building
-            # it's likely taller and may partially shade morning/evening sun
-            shading_factor = 1.0
-            b_lat = b.get("lat", 0)
-            b_lon = b.get("lon", 0)
+            # Simplified shading heuristic (O(1) per building — avoids O(n²) scan)
             b_area = b.get("area_m2", 1)
             dist = b.get("distance_km", 999)
-            large_neighbors = sum(
-                1 for other in buildings
-                if other is not b
-                and ((other.get("lat", 0) - b_lat) * 111000) ** 2
-                   + ((other.get("lon", 0) - b_lon) * 111000 * 0.85) ** 2 < 80 ** 2
-                and other.get("area_m2", 0) > b_area * 3
-            )
-            if large_neighbors >= 3:
+
+            # Smaller buildings near airport center (dense area) get slight shading penalty
+            if dist < 1.0 and b_area < 2000:
                 shading_factor = 0.93
-            elif large_neighbors >= 1:
+            elif dist < 2.0 and b_area < 1000:
                 shading_factor = 0.97
+            else:
+                shading_factor = 1.0
 
             # Building type classification
             btype = _classify_building_type(dist, b_area)

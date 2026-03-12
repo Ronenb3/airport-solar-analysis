@@ -33,7 +33,7 @@ class Settings(BaseSettings):
     LOG_FILE: str = Field(default="../logs/api.log", description="Log file path")
     
     # Performance
-    MAX_BUILDINGS_RETURN: int = Field(default=5000, description="Max buildings in response")
+    MAX_BUILDINGS_RETURN: int = Field(default=500, description="Max buildings in response")
     CACHE_TTL: int = Field(default=3600, description="Cache TTL in seconds")
     
     # Security
