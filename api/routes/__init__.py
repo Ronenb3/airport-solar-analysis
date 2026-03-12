@@ -15,8 +15,8 @@ APP_VERSION = "2.0.0"
 _start_time = datetime.now(timezone.utc)
 
 
-@router.get("/health")
-@router.get("/api/health")
+@router.api_route("/health", methods=["GET", "HEAD"])
+@router.api_route("/api/health", methods=["GET", "HEAD"])
 async def health_check():
     return {"status": "healthy", "timestamp": datetime.now(timezone.utc).isoformat()}
 
