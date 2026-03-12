@@ -50,6 +50,26 @@ def _classify_building_type(distance_km: float, area_m2: float) -> str:
     return "commercial"
 
 
+@router.get("/buildings-test/{airport_code}")
+def get_buildings_test(airport_code: str):
+    """Lightweight endpoint: load data only, no solar calculations. For debugging."""
+    import traceback
+    try:
+        airports = load_airports()
+        airport = next((a for a in airports if a["code"] == airport_code.upper()), None)
+        if not airport:
+            return {"ok": False, "error": f"Airport {airport_code} not found"}
+        buildings, error = get_buildings_for_airport(airport, 5.0, 500.0)
+        return {
+            "ok": True,
+            "airport": airport,
+            "building_count": len(buildings) if buildings else 0,
+            "error": error,
+        }
+    except Exception as exc:
+        return {"ok": False, "error": str(exc), "trace": traceback.format_exc()[-2000:]}
+
+
 @router.get("/buildings/{airport_code}")
 def get_buildings(
     airport_code: str,
@@ -72,7 +92,11 @@ def get_buildings(
     if not airport:
         raise HTTPException(status_code=404, detail=f"Airport {airport_code} not found")
 
-    buildings, error = get_buildings_for_airport(airport, radius, min_size)
+    try:
+        buildings, error = get_buildings_for_airport(airport, radius, min_size)
+    except Exception as exc:
+        logger.exception(f"get_buildings_for_airport failed for {airport_code}")
+        raise HTTPException(status_code=500, detail=f"data load: {exc}")
 
     if error:
         raise HTTPException(status_code=404, detail=error)
@@ -98,84 +122,92 @@ def get_buildings(
     ira_community = code_upper in IRA_ENERGY_COMMUNITY_AIRPORTS
     rec_price = REC_PRICES_PER_MWH.get(airport["state"], DEFAULT_REC_PRICE_PER_MWH)
 
-    for b in buildings:
-        # Simplified shading: if a neighbor within 80m has area > 3x this building
-        # it's likely taller and may partially shade morning/evening sun
-        shading_factor = 1.0
-        b_lat = b.get("lat", 0)
-        b_lon = b.get("lon", 0)
-        b_area = b.get("area_m2", 1)
-        dist = b.get("distance_km", 999)
-        large_neighbors = sum(
-            1 for other in buildings
-            if other is not b
-            and ((other.get("lat", 0) - b_lat) * 111000) ** 2
-               + ((other.get("lon", 0) - b_lon) * 111000 * 0.85) ** 2 < 80 ** 2
-            and other.get("area_m2", 0) > b_area * 3
-        )
-        if large_neighbors >= 3:
-            shading_factor = 0.93
-        elif large_neighbors >= 1:
-            shading_factor = 0.97
+    try:
+        for b in buildings:
+            # Simplified shading: if a neighbor within 80m has area > 3x this building
+            # it's likely taller and may partially shade morning/evening sun
+            shading_factor = 1.0
+            b_lat = b.get("lat", 0)
+            b_lon = b.get("lon", 0)
+            b_area = b.get("area_m2", 1)
+            dist = b.get("distance_km", 999)
+            large_neighbors = sum(
+                1 for other in buildings
+                if other is not b
+                and ((other.get("lat", 0) - b_lat) * 111000) ** 2
+                   + ((other.get("lon", 0) - b_lon) * 111000 * 0.85) ** 2 < 80 ** 2
+                and other.get("area_m2", 0) > b_area * 3
+            )
+            if large_neighbors >= 3:
+                shading_factor = 0.93
+            elif large_neighbors >= 1:
+                shading_factor = 0.97
 
-        # Building type classification
-        btype = _classify_building_type(dist, b_area)
+            # Building type classification
+            btype = _classify_building_type(dist, b_area)
 
-        b["solar"] = calc_solar(
-            b["area_m2"], airport["state"], usable_pct, panel_eff, elec_price,
+            b["solar"] = calc_solar(
+                b["area_m2"], airport["state"], usable_pct, panel_eff, elec_price,
+                include_itc=include_itc,
+                rate_escalation=rate_escalation,
+                financing=financing,
+                airport_code=code_upper,
+                shading_factor=shading_factor,
+                building_type=btype,
+            )
+            if shading_factor < 1.0:
+                b["shading_factor"] = round(shading_factor, 2)
+
+            # Building metadata
+            b["building_type"] = btype
+            b["split_incentive"] = SPLIT_INCENTIVE_BY_TYPE.get(btype, "medium")
+            b["grant_programs"] = GRANT_PROGRAMS_BY_TYPE.get(btype, [])
+            b["faa_aip_eligible"] = btype in FAA_AIP_ELIGIBLE_TYPES
+            b["ira_energy_community"] = ira_community
+            b["ira_adder_pct"] = int(IRA_ENERGY_COMMUNITY_ADDER * 100) if ira_community else 0
+
+            # Carbon credit info
+            b["rec_price_per_mwh"] = round(rec_price, 2)
+            b["lcfs_eligible"] = code_upper in LCFS_AIRPORTS
+
+            # FAA glare risk — use pvlib for close buildings, distance heuristic otherwise
+            if dist <= PVLIB_GLARE_RADIUS_KM and runways_tuple and ap_coords:
+                try:
+                    glare = calc_glare_risk(
+                        airport_code=code_upper,
+                        lat=b_lat,
+                        lon=b_lon,
+                        runways=runways_tuple,
+                    )
+                    b["glare_risk"] = glare["risk_level"]
+                    b["glare_hours_per_year"] = glare.get("glare_hours_per_year", 0)
+                    b["glare_worst_months"] = glare.get("worst_months", [])
+                    b["glare_description"] = glare.get("description", "")
+                    b["glare_method"] = "pvlib_specular"
+                except Exception as exc:
+                    logger.warning(f"pvlib glare error for {code_upper}: {exc}")
+                    b["glare_risk"] = classify_glare_risk_fast(dist)
+                    b["glare_method"] = "distance_fallback"
+            else:
+                b["glare_risk"] = classify_glare_risk_fast(dist)
+                b["glare_hours_per_year"] = None
+                b["glare_method"] = "distance_heuristic"
+    except Exception as exc:
+        logger.exception(f"building loop failed for {airport_code}")
+        raise HTTPException(status_code=500, detail=f"building calculation: {exc}")
+
+    try:
+        # Aggregate totals
+        totals = calc_totals(
+            buildings, airport["state"], usable_pct, panel_eff, elec_price,
             include_itc=include_itc,
             rate_escalation=rate_escalation,
             financing=financing,
             airport_code=code_upper,
-            shading_factor=shading_factor,
-            building_type=btype,
         )
-        if shading_factor < 1.0:
-            b["shading_factor"] = round(shading_factor, 2)
-
-        # Building metadata
-        b["building_type"] = btype
-        b["split_incentive"] = SPLIT_INCENTIVE_BY_TYPE.get(btype, "medium")
-        b["grant_programs"] = GRANT_PROGRAMS_BY_TYPE.get(btype, [])
-        b["faa_aip_eligible"] = btype in FAA_AIP_ELIGIBLE_TYPES
-        b["ira_energy_community"] = ira_community
-        b["ira_adder_pct"] = int(IRA_ENERGY_COMMUNITY_ADDER * 100) if ira_community else 0
-
-        # Carbon credit info
-        b["rec_price_per_mwh"] = round(rec_price, 2)
-        b["lcfs_eligible"] = code_upper in LCFS_AIRPORTS
-
-        # FAA glare risk — use pvlib for close buildings, distance heuristic otherwise
-        if dist <= PVLIB_GLARE_RADIUS_KM and runways_tuple and ap_coords:
-            try:
-                glare = calc_glare_risk(
-                    airport_code=code_upper,
-                    lat=b_lat,
-                    lon=b_lon,
-                    runways=runways_tuple,
-                )
-                b["glare_risk"] = glare["risk_level"]
-                b["glare_hours_per_year"] = glare.get("glare_hours_per_year", 0)
-                b["glare_worst_months"] = glare.get("worst_months", [])
-                b["glare_description"] = glare.get("description", "")
-                b["glare_method"] = "pvlib_specular"
-            except Exception as exc:
-                logger.warning(f"pvlib glare error for {code_upper}: {exc}")
-                b["glare_risk"] = classify_glare_risk_fast(dist)
-                b["glare_method"] = "distance_fallback"
-        else:
-            b["glare_risk"] = classify_glare_risk_fast(dist)
-            b["glare_hours_per_year"] = None
-            b["glare_method"] = "distance_heuristic"
-
-    # Aggregate totals
-    totals = calc_totals(
-        buildings, airport["state"], usable_pct, panel_eff, elec_price,
-        include_itc=include_itc,
-        rate_escalation=rate_escalation,
-        financing=financing,
-        airport_code=code_upper,
-    )
+    except Exception as exc:
+        logger.exception(f"calc_totals failed for {airport_code}")
+        raise HTTPException(status_code=500, detail=f"calc_totals: {exc}")
 
     # State-level metadata
     state = airport["state"]
