@@ -18,6 +18,7 @@ from routes import router as health_router
 from routes.airports import router as airports_router
 from routes.buildings import router as buildings_router
 from routes.compare import router as compare_router
+from routes.optimize import router as optimize_router
 from services.data_loader import DATA_DIR, AIRPORTS_FILE
 
 # Setup logging
@@ -58,6 +59,7 @@ app.include_router(health_router)
 app.include_router(airports_router)
 app.include_router(buildings_router)
 app.include_router(compare_router)
+app.include_router(optimize_router)
 
 
 # ---------- Lifecycle ----------

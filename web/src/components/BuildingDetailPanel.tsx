@@ -1,11 +1,15 @@
 'use client';
 
-import { X, Zap, DollarSign, Leaf, MapPin, Ruler, Calendar, TrendingUp, Shield, EyeOff, Trash2, Pencil, Building2, AlertTriangle, CheckCircle, Info } from 'lucide-react';
+import { X, Zap, DollarSign, Leaf, MapPin, Ruler, Calendar, TrendingUp, Shield, EyeOff, Trash2, Pencil, Building2, AlertTriangle, CheckCircle, Info, Award, BarChart2, Tag } from 'lucide-react';
 
 interface StateContext {
   elec_price?: number;
   net_metering?: { policy: string; label: string; detail: string };
   co2_rate?: number;
+  rec_price_per_mwh?: number;
+  lcfs_eligible?: boolean;
+  ira_energy_community?: boolean;
+  ira_adder_pct?: number;
 }
 
 interface BuildingDetailPanelProps {
@@ -16,7 +20,7 @@ interface BuildingDetailPanelProps {
   stateContext?: StateContext;
 }
 
-function GlareRiskBadge({ risk }: { risk?: string }) {
+function GlareRiskBadge({ risk, hours }: { risk?: string; hours?: number | null }) {
   if (!risk) return null;
   const config: Record<string, { bg: string; text: string; icon: any; label: string }> = {
     high: { bg: 'bg-red-100 dark:bg-red-900/30', text: 'text-red-700 dark:text-red-400', icon: AlertTriangle, label: 'High Glare Risk' },
@@ -28,8 +32,41 @@ function GlareRiskBadge({ risk }: { risk?: string }) {
   return (
     <span className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full ${c.bg} ${c.text}`}>
       <Icon className="w-3 h-3" />
+      {c.label}{hours != null ? ` · ${hours} hrs/yr` : ''}
+    </span>
+  );
+}
+
+function BuildingTypeBadge({ type }: { type?: string }) {
+  if (!type) return null;
+  const config: Record<string, { bg: string; text: string; label: string }> = {
+    terminal:   { bg: 'bg-purple-100 dark:bg-purple-900/30', text: 'text-purple-700 dark:text-purple-400', label: '✈ Terminal' },
+    hangar:     { bg: 'bg-blue-100 dark:bg-blue-900/30',   text: 'text-blue-700 dark:text-blue-400',   label: '🔧 Hangar' },
+    cargo:      { bg: 'bg-orange-100 dark:bg-orange-900/30', text: 'text-orange-700 dark:text-orange-400', label: '📦 Cargo' },
+    hotel:      { bg: 'bg-pink-100 dark:bg-pink-900/30',   text: 'text-pink-700 dark:text-pink-400',   label: '🏨 Hotel' },
+    commercial: { bg: 'bg-gray-100 dark:bg-gray-700',      text: 'text-gray-700 dark:text-gray-300',   label: '🏢 Commercial' },
+  };
+  const c = config[type] || config.commercial;
+  return (
+    <span className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full ${c.bg} ${c.text}`}>
       {c.label}
     </span>
+  );
+}
+
+function SplitIncentiveBadge({ level }: { level?: string }) {
+  if (!level) return null;
+  const config: Record<string, { bg: string; text: string; label: string; desc: string }> = {
+    low:    { bg: 'bg-green-100 dark:bg-green-900/30', text: 'text-green-700 dark:text-green-400', label: 'No Split Incentive', desc: 'Owner-occupied — savings accrue to the decision-maker' },
+    medium: { bg: 'bg-amber-100 dark:bg-amber-900/30', text: 'text-amber-700 dark:text-amber-400', label: 'Possible Split Incentive', desc: 'Building may be leased — verify ownership before investing' },
+    high:   { bg: 'bg-red-100 dark:bg-red-900/30',   text: 'text-red-700 dark:text-red-400',   label: 'Split Incentive Risk', desc: 'Likely leased to 3rd party — landlord bears cost, tenant pays bills' },
+  };
+  const c = config[level] || config.medium;
+  return (
+    <div className={`${c.bg} rounded-lg p-2.5 text-xs border border-opacity-30`}>
+      <div className={`font-semibold ${c.text}`}>{c.label}</div>
+      <div className="text-gray-500 dark:text-gray-400 mt-0.5">{c.desc}</div>
+    </div>
   );
 }
 
@@ -258,7 +295,7 @@ export function BuildingDetailPanel({ buildings, onClose, onHide, onRemoveCustom
         <div className="bg-gray-50 dark:bg-gray-800 rounded-xl p-4">
           <div className="flex items-center gap-2 mb-3">
             <MapPin className="w-4 h-4 text-primary-600" />
-            <span className="text-sm font-medium text-gray-900 dark:text-gray-100">Location</span>
+            <span className="text-sm font-medium text-gray-900 dark:text-gray-100">Location & Classification</span>
           </div>
           <div className="grid grid-cols-2 gap-3 text-sm">
             <div>
@@ -272,10 +309,17 @@ export function BuildingDetailPanel({ buildings, onClose, onHide, onRemoveCustom
               </div>
             </div>
           </div>
-          {building.glare_risk && (
-            <div className="mt-2">
-              <GlareRiskBadge risk={building.glare_risk} />
+          <div className="flex flex-wrap gap-1.5 mt-2">
+            <BuildingTypeBadge type={building.building_type} />
+            <GlareRiskBadge risk={building.glare_risk} hours={building.glare_hours_per_year} />
+          </div>
+          {building.glare_worst_months?.length > 0 && (
+            <div className="text-xs text-gray-500 dark:text-gray-400 mt-1.5">
+              Peak glare months: {building.glare_worst_months.join(', ')}
             </div>
+          )}
+          {building.glare_description && building.glare_method === 'pvlib_specular' && (
+            <div className="text-xs text-gray-400 dark:text-gray-500 mt-0.5 italic">{building.glare_description}</div>
           )}
         </div>
 
@@ -338,10 +382,18 @@ export function BuildingDetailPanel({ buildings, onClose, onHide, onRemoveCustom
                 ${solar.gross_install_cost?.toLocaleString()}
               </span>
             </div>
+            {solar.faa_aip_applicable && solar.faa_aip_grant > 0 && (
+              <div className="flex justify-between">
+                <span className="text-gray-500 dark:text-gray-400 flex items-center gap-1">
+                  <Award className="w-3 h-3 text-blue-500" /> FAA AIP (90% federal)
+                </span>
+                <span className="font-semibold text-blue-600">-${solar.faa_aip_grant?.toLocaleString()}</span>
+              </div>
+            )}
             {hasITC && (
               <div className="flex justify-between">
                 <span className="text-gray-500 dark:text-gray-400 flex items-center gap-1">
-                  <Shield className="w-3 h-3" /> 30% ITC Credit
+                  <Shield className="w-3 h-3" /> ITC {Math.round((solar.itc_rate || 0.30) * 100)}%{solar.ira_adder > 0 ? ` (+${Math.round(solar.ira_adder*100)}% IRA)` : ''}
                 </span>
                 <span className="font-semibold text-green-600">-${solar.itc_savings?.toLocaleString()}</span>
               </div>
@@ -351,11 +403,33 @@ export function BuildingDetailPanel({ buildings, onClose, onHide, onRemoveCustom
               <span className="font-bold text-gray-900 dark:text-gray-100">${solar.install_cost?.toLocaleString()}</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-gray-500 dark:text-gray-400">Annual Revenue</span>
+              <span className="text-gray-500 dark:text-gray-400">Annual Revenue (electric)</span>
               <span className="font-semibold text-green-700 dark:text-green-400">
                 ${solar.annual_revenue?.toLocaleString()}/yr
               </span>
             </div>
+            {solar.annual_rec_revenue > 0 && (
+              <div className="flex justify-between">
+                <span className="text-gray-500 dark:text-gray-400 flex items-center gap-1">
+                  <Tag className="w-3 h-3" /> RECs (${solar.rec_price_per_mwh}/MWh)
+                </span>
+                <span className="font-semibold text-green-600">+${solar.annual_rec_revenue?.toLocaleString()}/yr</span>
+              </div>
+            )}
+            {solar.annual_demand_savings > 0 && (
+              <div className="flex justify-between">
+                <span className="text-gray-500 dark:text-gray-400 flex items-center gap-1">
+                  <BarChart2 className="w-3 h-3" /> Demand charge savings
+                </span>
+                <span className="font-semibold text-green-600">+${solar.annual_demand_savings?.toLocaleString()}/yr</span>
+              </div>
+            )}
+            {solar.annual_lcfs_revenue > 0 && (
+              <div className="flex justify-between">
+                <span className="text-gray-500 dark:text-gray-400">LCFS credits (CA)</span>
+                <span className="font-semibold text-green-600">+${solar.annual_lcfs_revenue?.toLocaleString()}/yr</span>
+              </div>
+            )}
             <div className="flex justify-between">
               <span className="text-gray-500 dark:text-gray-400">Annual O&M</span>
               <span className="font-semibold text-gray-900 dark:text-gray-100">-${solar.annual_om?.toLocaleString()}/yr</span>
@@ -435,6 +509,41 @@ export function BuildingDetailPanel({ buildings, onClose, onHide, onRemoveCustom
         {/* Net Metering */}
         <NetMeteringBadge netMetering={stateContext?.net_metering} />
 
+        {/* Incentives & Grants */}
+        {(building.grant_programs?.length > 0 || building.ira_energy_community) && (
+          <div className="bg-blue-50 dark:bg-blue-900/20 rounded-xl p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <Award className="w-4 h-4 text-blue-600" />
+              <span className="text-sm font-medium text-gray-900 dark:text-gray-100">Incentives & Grants</span>
+            </div>
+            <div className="space-y-1.5">
+              {building.grant_programs?.map((pg: string) => (
+                <div key={pg} className="flex items-start gap-2 text-xs">
+                  <CheckCircle className="w-3.5 h-3.5 text-blue-500 mt-0.5 flex-shrink-0" />
+                  <span className="text-gray-700 dark:text-gray-300">{pg}</span>
+                </div>
+              ))}
+              {building.ira_energy_community && (
+                <div className="flex items-start gap-2 text-xs">
+                  <CheckCircle className="w-3.5 h-3.5 text-blue-500 mt-0.5 flex-shrink-0" />
+                  <span className="text-gray-700 dark:text-gray-300">IRA +{building.ira_adder_pct}% Energy Community bonus</span>
+                </div>
+              )}
+              {solar.section_179d_benefit > 0 && (
+                <div className="flex items-start gap-2 text-xs">
+                  <CheckCircle className="w-3.5 h-3.5 text-blue-500 mt-0.5 flex-shrink-0" />
+                  <span className="text-gray-700 dark:text-gray-300">§179D building deduction: +${solar.section_179d_benefit?.toLocaleString()}</span>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Split Incentive / Ownership */}
+        {building.split_incentive && (
+          <SplitIncentiveBadge level={building.split_incentive} />
+        )}
+
         {/* Environmental */}
         <div className="bg-emerald-50 dark:bg-emerald-900/20 rounded-xl p-4">
           <div className="flex items-center gap-2 mb-3">
@@ -470,7 +579,11 @@ export function BuildingDetailPanel({ buildings, onClose, onHide, onRemoveCustom
           <p>Panel degradation: {((solar.degradation_rate || 0.005) * 100).toFixed(1)}%/yr &bull; Discount rate: {((solar.discount_rate || 0.06) * 100)}%</p>
           <p>Install cost: ${solar.cost_per_watt}/W &bull; O&M: $15/kW/yr &bull; Rate escalation: {((solar.rate_escalation || 0.02) * 100).toFixed(0)}%/yr</p>
           <p>Inverter replacement at yr 15 &bull; MACRS 5-yr depreciation &bull; {solar.financing === 'loan' ? `Loan: ${(solar.loan_rate * 100).toFixed(1)}% / ${solar.loan_term}yr` : 'Cash purchase'}</p>
-          <p>Sources: NREL 2024 ATB, SEIA 2025, EPA eGRID 2023, EIA 2024</p>
+          {building.glare_method === 'pvlib_specular' && (
+            <p>Glare: pvlib specular model (Sandia SAND2013-5426) &bull; FAA NASR runway headings</p>
+          )}
+          <p>REC: {building.rec_price_per_mwh || solar.rec_price_per_mwh || '—'}$/MWh &bull; Demand: ${solar.demand_charge_rate}/kW-mo {building.lcfs_eligible ? '· LCFS: $0.020/kWh' : ''}</p>
+          <p>Sources: NREL 2024 ATB, SEIA 2025, EPA eGRID 2023, EIA 2024, OpenEI URDB, DSIRE 2024</p>
         </div>
 
         {/* Action Button */}

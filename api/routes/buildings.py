@@ -9,6 +9,7 @@ from fastapi import APIRouter, Query, HTTPException
 
 from services import calc_solar, calc_totals
 from services.data_loader import load_airports, get_buildings_for_airport
+from services.glare import calc_glare_risk, classify_glare_risk_fast
 from solar_constants import (
     STATE_ELEC_PRICES,
     DEFAULT_ELEC_PRICE,
@@ -17,10 +18,36 @@ from solar_constants import (
     GLARE_RISK_THRESHOLDS,
     AIRPORT_CAPACITY_FACTORS,
     DEFAULT_CAPACITY_FACTOR,
+    RUNWAY_HEADINGS,
+    AIRPORT_COORDS,
+    SPLIT_INCENTIVE_BY_TYPE,
+    GRANT_PROGRAMS_BY_TYPE,
+    FAA_AIP_ELIGIBLE_TYPES,
+    IRA_ENERGY_COMMUNITY_AIRPORTS,
+    IRA_ENERGY_COMMUNITY_ADDER,
+    REC_PRICES_PER_MWH,
+    DEFAULT_REC_PRICE_PER_MWH,
+    LCFS_AIRPORTS,
 )
 
 router = APIRouter(prefix="/api", tags=["buildings"])
 logger = logging.getLogger(__name__)
+
+# Pvlib glare calc is expensive — only run for buildings within this radius
+PVLIB_GLARE_RADIUS_KM = 3.0
+
+
+def _classify_building_type(distance_km: float, area_m2: float) -> str:
+    """Classify building type based on distance from airport center and footprint area."""
+    if distance_km <= 0.5 and area_m2 >= 3000:
+        return "terminal"
+    elif distance_km <= 2.5 and area_m2 >= 5000:
+        return "hangar"
+    elif distance_km <= 3.0 and area_m2 >= 2500:
+        return "cargo"
+    elif distance_km <= 5.0 and area_m2 >= 1500:
+        return "hotel"
+    return "commercial"
 
 
 @router.get("/buildings/{airport_code}")
@@ -62,9 +89,15 @@ def get_buildings(
     if financing not in ("cash", "loan"):
         financing = "cash"
 
-    # Solar calcs per building — using per-airport PVWatts capacity factors
-    # and simplified inter-building shading estimation
+    # Solar calcs per building — using per-airport PVWatts capacity factors,
+    # simplified inter-building shading, building type classification,
+    # and pvlib-based FAA glare analysis for buildings within 3km.
     code_upper = airport_code.upper()
+    runways_tuple = tuple(RUNWAY_HEADINGS.get(code_upper, []))
+    ap_coords = AIRPORT_COORDS.get(code_upper)
+    ira_community = code_upper in IRA_ENERGY_COMMUNITY_AIRPORTS
+    rec_price = REC_PRICES_PER_MWH.get(airport["state"], DEFAULT_REC_PRICE_PER_MWH)
+
     for b in buildings:
         # Simplified shading: if a neighbor within 80m has area > 3x this building
         # it's likely taller and may partially shade morning/evening sun
@@ -72,6 +105,7 @@ def get_buildings(
         b_lat = b.get("lat", 0)
         b_lon = b.get("lon", 0)
         b_area = b.get("area_m2", 1)
+        dist = b.get("distance_km", 999)
         large_neighbors = sum(
             1 for other in buildings
             if other is not b
@@ -84,6 +118,9 @@ def get_buildings(
         elif large_neighbors >= 1:
             shading_factor = 0.97
 
+        # Building type classification
+        btype = _classify_building_type(dist, b_area)
+
         b["solar"] = calc_solar(
             b["area_m2"], airport["state"], usable_pct, panel_eff, elec_price,
             include_itc=include_itc,
@@ -91,18 +128,45 @@ def get_buildings(
             financing=financing,
             airport_code=code_upper,
             shading_factor=shading_factor,
+            building_type=btype,
         )
         if shading_factor < 1.0:
             b["shading_factor"] = round(shading_factor, 2)
 
-        # FAA solar glare risk based on distance to airport center
-        dist = b.get("distance_km", 999)
-        if dist <= GLARE_RISK_THRESHOLDS["high"]:
-            b["glare_risk"] = "high"
-        elif dist <= GLARE_RISK_THRESHOLDS["moderate"]:
-            b["glare_risk"] = "moderate"
+        # Building metadata
+        b["building_type"] = btype
+        b["split_incentive"] = SPLIT_INCENTIVE_BY_TYPE.get(btype, "medium")
+        b["grant_programs"] = GRANT_PROGRAMS_BY_TYPE.get(btype, [])
+        b["faa_aip_eligible"] = btype in FAA_AIP_ELIGIBLE_TYPES
+        b["ira_energy_community"] = ira_community
+        b["ira_adder_pct"] = int(IRA_ENERGY_COMMUNITY_ADDER * 100) if ira_community else 0
+
+        # Carbon credit info
+        b["rec_price_per_mwh"] = round(rec_price, 2)
+        b["lcfs_eligible"] = code_upper in LCFS_AIRPORTS
+
+        # FAA glare risk — use pvlib for close buildings, distance heuristic otherwise
+        if dist <= PVLIB_GLARE_RADIUS_KM and runways_tuple and ap_coords:
+            try:
+                glare = calc_glare_risk(
+                    airport_code=code_upper,
+                    lat=b_lat,
+                    lon=b_lon,
+                    runways=runways_tuple,
+                )
+                b["glare_risk"] = glare["risk_level"]
+                b["glare_hours_per_year"] = glare.get("glare_hours_per_year", 0)
+                b["glare_worst_months"] = glare.get("worst_months", [])
+                b["glare_description"] = glare.get("description", "")
+                b["glare_method"] = "pvlib_specular"
+            except Exception as exc:
+                logger.warning(f"pvlib glare error for {code_upper}: {exc}")
+                b["glare_risk"] = classify_glare_risk_fast(dist)
+                b["glare_method"] = "distance_fallback"
         else:
-            b["glare_risk"] = "low"
+            b["glare_risk"] = classify_glare_risk_fast(dist)
+            b["glare_hours_per_year"] = None
+            b["glare_method"] = "distance_heuristic"
 
     # Aggregate totals
     totals = calc_totals(
@@ -118,6 +182,10 @@ def get_buildings(
     state_meta = {
         "elec_price": STATE_ELEC_PRICES.get(state, DEFAULT_ELEC_PRICE),
         "net_metering": STATE_NET_METERING.get(state, DEFAULT_NET_METERING),
+        "rec_price_per_mwh": REC_PRICES_PER_MWH.get(state, DEFAULT_REC_PRICE_PER_MWH),
+        "lcfs_eligible": code_upper in LCFS_AIRPORTS,
+        "ira_energy_community": ira_community,
+        "ira_adder_pct": int(IRA_ENERGY_COMMUNITY_ADDER * 100) if ira_community else 0,
     }
 
     return {

@@ -7,6 +7,7 @@ export { EquationsPanel } from './EquationsPanel';
 export { MultiSelect } from './MultiSelect';
 export { ThemeToggle } from './ThemeToggle';
 export { BuildingDetailPanel } from './BuildingDetailPanel';
+export { PortfolioOptimizer } from './PortfolioOptimizer';
 export { SingleAirportView } from './views/SingleAirportView';
 export { CompareView } from './views/CompareView';
 export { AggregateView } from './views/AggregateView';

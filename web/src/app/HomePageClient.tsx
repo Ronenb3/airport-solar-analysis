@@ -453,6 +453,7 @@ export default function HomePage() {
           customBuildingCount={customCount}
           onRemoveAllCustom={removeAllCustom}
           onHideMultiple={hideMultiple}
+          elecPrice={elecPriceQ || 0.12}
         />
       )}
       {viewMode === 'compare' && data && !isLoading && <CompareView data={data} />}

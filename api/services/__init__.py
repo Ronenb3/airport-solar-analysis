@@ -36,6 +36,19 @@ from solar_constants import (
     DEFAULT_LOAN_TERM,
     MACRS_5YR_SCHEDULE,
     DEFAULT_TAX_RATE,
+    # New constants
+    REC_PRICES_PER_MWH,
+    DEFAULT_REC_PRICE_PER_MWH,
+    LCFS_AIRPORTS,
+    LCFS_CREDIT_PER_KWH,
+    DEMAND_CHARGE_RATES,
+    DEFAULT_DEMAND_CHARGE,
+    DEMAND_REDUCTION_FACTOR,
+    IRA_ENERGY_COMMUNITY_AIRPORTS,
+    IRA_ENERGY_COMMUNITY_ADDER,
+    FAA_AIP_FEDERAL_SHARE,
+    FAA_AIP_ELIGIBLE_TYPES,
+    SECTION_179D_PER_M2,
 )
 
 
@@ -67,6 +80,9 @@ def calc_solar(
     loan_term: int = DEFAULT_LOAN_TERM,
     airport_code: str = None,
     shading_factor: float = 1.0,
+    building_type: str = "commercial",
+    include_carbon_credits: bool = True,
+    include_demand_charges: bool = True,
 ) -> dict:
     """
     Calculate solar potential for a given roof area with full financial modeling.
@@ -124,20 +140,66 @@ def calc_solar(
     capacity_w = capacity_kw * 1000
     annual_kwh_yr1 = capacity_kw * HOURS_PER_YEAR * cf  # year-1 AC output
 
+    # --- IRA Bonus ITC adders ---
+    ira_adder = 0.0
+    if airport_code and airport_code.upper() in IRA_ENERGY_COMMUNITY_AIRPORTS:
+        ira_adder = IRA_ENERGY_COMMUNITY_ADDER  # +10%
+
+    effective_itc = (ITC_RATE + ira_adder) if include_itc else 0.0
+
+    # --- FAA AIP effective cost reduction ---
+    # For terminals/hangars/cargo within airport property, FAA Airport Improvement
+    # Program covers 90% of eligible project costs. Net cost = 10%.
+    faa_aip_applicable = building_type in FAA_AIP_ELIGIBLE_TYPES
+    faa_aip_grant = 0.0
+
     # --- Costs ---
     gross_cost = capacity_w * INSTALL_COST_PER_WATT
-    itc_savings = gross_cost * ITC_RATE if include_itc else 0.0
-    net_cost = gross_cost - itc_savings
+    itc_savings = gross_cost * effective_itc if include_itc else 0.0
+    if faa_aip_applicable:
+        # FAA AIP: 90% federal cost share (replaces/stacks with ITC differently)
+        # The 90% covers construction cost; ITC applied to remaining 10%
+        faa_aip_grant = gross_cost * FAA_AIP_FEDERAL_SHARE
+        net_cost = gross_cost - faa_aip_grant - (gross_cost * (1 - FAA_AIP_FEDERAL_SHARE) * effective_itc)
+    else:
+        net_cost = gross_cost - itc_savings
+
+    net_cost = max(net_cost, 0.0)
+
     annual_om = capacity_kw * OM_COST_PER_KW_YEAR
     inverter_cost = capacity_w * INVERTER_COST_PER_WATT  # mid-life replacement
 
+    # --- Section 179D deduction (commercial buildings) ---
+    section_179d = usable * SECTION_179D_PER_M2 * DEFAULT_TAX_RATE if not faa_aip_applicable else 0.0
+
     # --- MACRS Depreciation benefit (commercial) ---
     # Depreciable basis = gross_cost - (ITC_rate / 2) * gross_cost  (IRS rule)
-    depreciable_basis = gross_cost * (1 - (ITC_RATE / 2 if include_itc else 0))
+    if faa_aip_applicable:
+        # Only the non-FAA portion is depreciable
+        depreciable_basis = gross_cost * (1 - FAA_AIP_FEDERAL_SHARE) * (1 - effective_itc / 2)
+    else:
+        depreciable_basis = gross_cost * (1 - (effective_itc / 2 if include_itc else 0))
     macrs_benefit = sum(
         depreciable_basis * frac * DEFAULT_TAX_RATE
         for frac in MACRS_5YR_SCHEDULE
     )
+
+    # --- REC / Carbon Credit Revenue ---
+    # Renewable Energy Certificates: unbundled, sold annually per MWh generated
+    rec_price = REC_PRICES_PER_MWH.get(state, DEFAULT_REC_PRICE_PER_MWH)
+    annual_rec_revenue_yr1 = (annual_kwh_yr1 / 1000) * rec_price if include_carbon_credits else 0.0
+    # LCFS (CA airports only): additional $/kWh when powering transportation loads
+    lcfs_revenue_yr1 = 0.0
+    if include_carbon_credits and airport_code and airport_code.upper() in LCFS_AIRPORTS:
+        lcfs_revenue_yr1 = annual_kwh_yr1 * LCFS_CREDIT_PER_KWH
+
+    # --- Demand Charge Savings ---
+    demand_rate = DEMAND_CHARGE_RATES.get(airport_code, DEFAULT_DEMAND_CHARGE) if airport_code else DEFAULT_DEMAND_CHARGE
+    annual_demand_savings_yr1 = 0.0
+    if include_demand_charges:
+        # Demand saving = peak kW reduced × demand charge rate × 12 months
+        # Solar reduces coincident peak by DEMAND_REDUCTION_FACTOR of capacity_kw
+        annual_demand_savings_yr1 = capacity_kw * DEMAND_REDUCTION_FACTOR * demand_rate * 12
 
     # --- Financing ---
     monthly_payment = 0.0
@@ -150,19 +212,23 @@ def calc_solar(
 
     # --- Year-1 financials ---
     annual_revenue_yr1 = annual_kwh_yr1 * price
-    net_annual_yr1 = annual_revenue_yr1 - annual_om
+    net_annual_yr1 = annual_revenue_yr1 + annual_rec_revenue_yr1 + annual_demand_savings_yr1 + lcfs_revenue_yr1 - annual_om
 
     # --- Simple payback (on net cost, no escalation) ---
     simple_payback = net_cost / net_annual_yr1 if net_annual_yr1 > 0 else 999
 
     # ===================================================================
     # 25-YEAR MODEL — Year-by-year solar vs grid comparison
-    # Inspired by professional LCOE methodology
+    # Revenues: electricity savings + RECs + demand charges + LCFS
     # ===================================================================
     npv = -net_cost if financing == "cash" else 0  # Loan: no upfront cost
     cumulative_kwh = 0.0
     payback_year = None
     cumulative_cashflow = -net_cost if financing == "cash" else 0
+
+    # Add Section 179D benefit in year 1 (deduction realized on tax return)
+    if section_179d > 0:
+        cumulative_cashflow += section_179d
 
     # Accumulators for LCOE
     total_solar_cost_discounted = net_cost if financing == "cash" else 0
@@ -181,6 +247,13 @@ def calc_solar(
         year_kwh = annual_kwh_yr1 * degradation_factor
         year_revenue = year_kwh * grid_rate  # Revenue at escalated rate
 
+        # REC revenue (RECs typically sold for 1–3 year contracts; assume annual reset)
+        year_rec = (year_kwh / 1000) * rec_price if include_carbon_credits else 0.0
+        # LCFS revenue (annual, CA airports only)
+        year_lcfs = year_kwh * LCFS_CREDIT_PER_KWH if (include_carbon_credits and airport_code and airport_code.upper() in LCFS_AIRPORTS) else 0.0
+        # Demand savings (capacity degrades but peak savings roughly stable due to panel sizing)
+        year_demand = annual_demand_savings_yr1  # Conservative: flat over life
+
         # Solar costs for this year
         year_om = annual_om
         year_loan = annual_loan_payment if (financing == "loan" and year <= loan_term) else 0
@@ -197,19 +270,21 @@ def calc_solar(
         else:
             year_solar_cost = year_loan + year_om + year_inverter - year_macrs
 
-        # Cashflow: revenue minus costs
-        year_cashflow = year_revenue - year_solar_cost
+        # Total solar revenue (electricity + RECs + demand + LCFS)
+        year_total_revenue = year_revenue + year_rec + year_demand + year_lcfs
+
+        # Cashflow: total revenue minus costs
+        year_cashflow = year_total_revenue - year_solar_cost
 
         # NPV accumulation
         discount = (1 + discount_rate) ** year
         discounted_cashflow = year_cashflow / discount if financing == "cash" else \
-            (year_revenue - year_solar_cost) / discount
+            (year_total_revenue - year_solar_cost) / discount
         npv += discounted_cashflow
 
         # Cumulative savings vs grid
-        year_savings = grid_cost - year_solar_cost
+        year_savings = grid_cost - year_solar_cost + year_rec + year_demand + year_lcfs
         if financing == "cash":
-            # For cash, the upfront cost is already deducted
             cumulative_cashflow += year_cashflow
         else:
             cumulative_cashflow += year_savings
@@ -230,7 +305,9 @@ def calc_solar(
             "grid_cost": round(grid_cost, 0),
             "solar_kwh": round(year_kwh, 0),
             "solar_cost": round(year_solar_cost, 0),
-            "solar_revenue": round(year_revenue, 0),
+            "solar_revenue": round(year_total_revenue, 0),
+            "rec_revenue": round(year_rec, 0),
+            "demand_savings": round(year_demand, 0),
             "savings": round(year_savings, 0),
             "cumulative_savings": round(cumulative_cashflow, 0),
             "generation_mwh": round(year_kwh / 1000, 1),
@@ -251,7 +328,16 @@ def calc_solar(
     lifetime_solar_cost = (net_cost if financing == "cash" else total_loan_cost) + \
         annual_om * SYSTEM_LIFETIME_YEARS + inverter_cost - macrs_benefit
 
-    lifetime_savings = lifetime_grid_cost - lifetime_solar_cost
+    # Lifetime ancillary revenues (RECs, demand, LCFS) — simple sum
+    lifetime_rec_revenue = sum(
+        (annual_kwh_yr1 * (1 - ANNUAL_DEGRADATION) ** (y - 1) / 1000) * rec_price
+        for y in range(1, SYSTEM_LIFETIME_YEARS + 1)
+    ) if include_carbon_credits else 0.0
+    lifetime_demand_savings = annual_demand_savings_yr1 * SYSTEM_LIFETIME_YEARS if include_demand_charges else 0.0
+    lifetime_lcfs = (annual_kwh_yr1 * LCFS_CREDIT_PER_KWH * SYSTEM_LIFETIME_YEARS) \
+        if (include_carbon_credits and airport_code and airport_code.upper() in LCFS_AIRPORTS) else 0.0
+
+    lifetime_savings = lifetime_grid_cost - lifetime_solar_cost + lifetime_rec_revenue + lifetime_demand_savings + lifetime_lcfs
 
     # --- Environmental ---
     co2_avoided_yr1 = annual_kwh_yr1 * co2_rate / 1000  # metric tons
@@ -277,11 +363,12 @@ def calc_solar(
         "npv_25yr": round(npv, 0),
         "lifetime_mwh": round(lifetime_mwh, 0),
         "cost_per_watt": INSTALL_COST_PER_WATT,
-        "itc_rate": ITC_RATE if include_itc else 0,
+        "itc_rate": effective_itc if include_itc else 0,
+        "ira_adder": round(ira_adder, 2),
         "discount_rate": discount_rate,
         "degradation_rate": ANNUAL_DEGRADATION,
         "yearly_generation_mwh": [yd["generation_mwh"] for yd in yearly_data],
-        # LCOE & Grid Comparison (NEW — inspired by LCOE methodology)
+        # LCOE & Grid Comparison
         "lcoe_solar": round(lcoe_solar, 4),
         "lcoe_grid": round(lcoe_grid, 4),
         "lcoe_savings_pct": round((1 - lcoe_solar / lcoe_grid) * 100, 1) if lcoe_grid > 0 else 0,
@@ -305,6 +392,20 @@ def calc_solar(
         "co2_avoided_lifetime_tons": round(co2_avoided_lifetime, 0),
         "homes_powered": round(homes_powered, 0),
         "co2_rate_kg_kwh": co2_rate,
+        # Carbon credits & ancillary revenue
+        "annual_rec_revenue": round(annual_rec_revenue_yr1, 0),
+        "rec_price_per_mwh": round(rec_price, 2),
+        "annual_lcfs_revenue": round(lcfs_revenue_yr1, 0),
+        "annual_demand_savings": round(annual_demand_savings_yr1, 0),
+        "demand_charge_rate": round(demand_rate, 2),
+        "lifetime_rec_revenue": round(lifetime_rec_revenue, 0),
+        "lifetime_demand_savings": round(lifetime_demand_savings, 0),
+        "lifetime_lcfs_revenue": round(lifetime_lcfs, 0),
+        # Grant / tax programs
+        "faa_aip_applicable": faa_aip_applicable,
+        "faa_aip_grant": round(faa_aip_grant, 0),
+        "section_179d_benefit": round(section_179d, 0),
+        "building_type": building_type,
     }
 
 

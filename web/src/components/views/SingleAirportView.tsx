@@ -6,6 +6,7 @@ import dynamic from 'next/dynamic';
 import { MetricCard } from '@/components/MetricCard';
 import { DataTable } from '@/components/DataTable';
 import { CashflowChart } from '@/components/CashflowChart';
+import { PortfolioOptimizer } from '@/components/PortfolioOptimizer';
 
 const BuildingMap = dynamic(() => import('@/components/BuildingMap'), {
   ssr: false,
@@ -24,9 +25,10 @@ interface SingleAirportViewProps {
   customBuildingCount?: number;
   onRemoveAllCustom?: () => void;
   onHideMultiple?: (buildings: any[]) => void;
+  elecPrice?: number;
 }
 
-export function SingleAirportView({ data, radius, onExportCSV, selectedBuildings, setSelectedBuildings, hiddenCount = 0, onRestoreAll, onDrawComplete, customBuildingCount = 0, onRemoveAllCustom, onHideMultiple }: SingleAirportViewProps) {
+export function SingleAirportView({ data, radius, onExportCSV, selectedBuildings, setSelectedBuildings, hiddenCount = 0, onRestoreAll, onDrawComplete, customBuildingCount = 0, onRemoveAllCustom, onHideMultiple, elecPrice }: SingleAirportViewProps) {
   const [focusBuilding, setFocusBuilding] = useState<any>(null);
   const mapRef = useRef<HTMLDivElement>(null);
 
@@ -226,6 +228,16 @@ export function SingleAirportView({ data, radius, onExportCSV, selectedBuildings
           paybackYear={totals.payback_years}
           lifetimeSavings={totals.lifetime_savings || 0}
         />
+      )}
+
+      {/* Portfolio Optimizer */}
+      {data.airport && (
+        <div className="mb-6">
+          <PortfolioOptimizer
+            airportCode={data.airport.code}
+            elecPrice={elecPrice}
+          />
+        </div>
       )}
 
       {/* Map */}
