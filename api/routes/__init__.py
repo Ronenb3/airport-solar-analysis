@@ -2,6 +2,7 @@
 Health, status, and readiness endpoints.
 """
 
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -9,7 +10,17 @@ from fastapi import APIRouter, HTTPException, Request
 
 router = APIRouter()
 
-DATA_DIR = Path(__file__).parent.parent.parent / "data"
+# Resolve DATA_DIR: honour the env var when the path exists (Docker sets
+# DATA_DIR=/app/data and copies data there); otherwise fall back to a path
+# relative to this source file so local dev / native-Python deploys work too.
+_env_data = os.environ.get("DATA_DIR")
+_env_path = Path(_env_data) if _env_data else None
+_repo_data = Path(__file__).parent.parent.parent / "data"
+if _env_path and _env_path.exists():
+    DATA_DIR = _env_path
+else:
+    DATA_DIR = _repo_data
+
 AIRPORTS_FILE = DATA_DIR / "airports" / "top_30_airports.csv"
 APP_VERSION = "2.0.0"
 _start_time = datetime.now(timezone.utc)
@@ -44,7 +55,7 @@ async def status(request: Request):
             "airports_file": str(AIRPORTS_FILE),
             "cache_v2_dir": str(cache_v2_dir),
             "cache_v2_exists": cache_v2_dir.exists(),
-            "env_DATA_DIR": __import__("os").environ.get("DATA_DIR", "(not set)"),
+            "env_DATA_DIR": os.environ.get("DATA_DIR", "(not set)"),
         },
     }
 
