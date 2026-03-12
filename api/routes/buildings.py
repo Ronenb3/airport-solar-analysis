@@ -33,8 +33,8 @@ from solar_constants import (
 router = APIRouter(prefix="/api", tags=["buildings"])
 logger = logging.getLogger(__name__)
 
-# Pvlib glare calc is expensive — only run for buildings within this radius
-PVLIB_GLARE_RADIUS_KM = 3.0
+# Pvlib glare calc is expensive — disabled on free-tier (use fast heuristic for all)
+PVLIB_GLARE_RADIUS_KM = 0.0
 
 
 def _classify_building_type(distance_km: float, area_m2: float) -> str:
