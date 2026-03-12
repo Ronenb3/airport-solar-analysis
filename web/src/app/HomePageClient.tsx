@@ -18,12 +18,12 @@ import { SingleAirportView } from '@/components/views/SingleAirportView';
 import { CompareView } from '@/components/views/CompareView';
 import { AggregateView } from '@/components/views/AggregateView';
 
-// SWR fetcher with auto-retry for Render cold-start 502s
-const fetcher = async (url: string, retries = 2): Promise<any> => {
+// SWR fetcher with auto-retry for Render cold-start 502/504s
+const fetcher = async (url: string, retries = 3): Promise<any> => {
   const res = await fetch(url);
-  if (res.status === 502 && retries > 0) {
-    // Render free tier cold-start — wait and retry
-    await new Promise(r => setTimeout(r, 3000));
+  // 502 = Render not yet up, 504 = Netlify proxy timed out waiting for Render
+  if ((res.status === 502 || res.status === 504) && retries > 0) {
+    await new Promise(r => setTimeout(r, 5000));
     return fetcher(url, retries - 1);
   }
   if (!res.ok) {
@@ -80,10 +80,10 @@ export default function HomePage() {
   // Fetch airports list
   const { data: airports } = useSWR<Airport[]>('/api/airports', fetcher);
 
-  // Warm up Render backend on first load (fire-and-forget)
-  useEffect(() => {
-    fetch('/api/health').catch(() => {});
-  }, []);
+  // Warm up Render backend on first load — tracking vars for wake-up banner
+  const [serverWaking, setServerWaking] = useState(false);
+  const serverWakingRef = useRef(false);
+  const mutateRef = useRef<() => void>(() => {});
 
   // Find airport center for custom buildings
   const airportCenter: [number, number] = useMemo(() => {
@@ -127,7 +127,39 @@ export default function HomePage() {
   const { data: rawData, error, isLoading, mutate } = useSWR(apiUrl, fetcher, {
     revalidateOnFocus: false,
     dedupingInterval: 5000,
+    shouldRetryOnError: false,
   });
+
+  // Keep mutateRef current so the ping effect can call it
+  mutateRef.current = mutate;
+
+  // Ping /api/health on mount; show waking banner + auto-retry data when server comes back
+  useEffect(() => {
+    let alive = true;
+    const ping = async () => {
+      try {
+        const res = await fetch('/api/health');
+        if ((res.status === 502 || res.status === 504) && alive) {
+          serverWakingRef.current = true;
+          setServerWaking(true);
+          setTimeout(ping, 5000);
+        } else if (alive) {
+          const wasWaking = serverWakingRef.current;
+          serverWakingRef.current = false;
+          setServerWaking(false);
+          if (wasWaking) mutateRef.current();
+        }
+      } catch {
+        if (alive) {
+          serverWakingRef.current = true;
+          setServerWaking(true);
+          setTimeout(ping, 5000);
+        }
+      }
+    };
+    ping();
+    return () => { alive = false; };
+  }, []);
 
   // Filter out hidden buildings, merge custom buildings, and recalculate totals
   const data = useMemo(() => {
@@ -419,6 +451,12 @@ export default function HomePage() {
       {/* Loading State */}
       {isLoading && (
         <div className="space-y-4">
+          {serverWaking && (
+            <div className="flex items-center gap-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl px-4 py-3 text-sm text-amber-800 dark:text-amber-300">
+              <RefreshCw className="w-4 h-4 animate-spin flex-shrink-0" />
+              <span><strong>Server is waking up</strong> — Render free tier spins down after inactivity. This takes 20–50 seconds. Retrying automatically…</span>
+            </div>
+          )}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             {[...Array(4)].map((_, i) => (
               <div key={i} className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm border border-gray-200 dark:border-gray-700">
@@ -430,7 +468,7 @@ export default function HomePage() {
           <div className="flex items-center justify-center py-8">
             <div className="flex items-center gap-3 text-gray-500 dark:text-gray-400">
               <RefreshCw className="w-5 h-5 animate-spin" />
-              <span>Loading building data...</span>
+              <span>{serverWaking ? 'Waiting for server to start…' : 'Loading building data…'}</span>
             </div>
           </div>
         </div>
