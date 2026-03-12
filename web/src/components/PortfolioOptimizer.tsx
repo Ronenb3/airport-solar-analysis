@@ -13,21 +13,30 @@ interface PortfolioBuilding {
   capacity_kw: number;
   annual_kwh: number;
   install_cost: number;
+  install_cost_full: number;
   npv_25yr: number;
+  npv_base: number;
+  npv_with_incentives: number;
+  npv_with_grants: number;
   payback_years: number;
   lcoe_solar: number;
   annual_revenue: number;
   annual_rec_revenue: number;
   annual_demand_savings: number;
   faa_aip_applicable: boolean;
+  faa_aip_grant_potential: number;
   ira_adder: number;
   npv_per_dollar: number;
 }
 
 interface PortfolioSummary {
   count: number;
+  scenario: string;
+  scenario_note: string;
   total_cost: number;
   total_npv: number;
+  scenario_npvs: { base: number; incentives: number; grants: number };
+  total_faa_aip_potential: number;
   total_capacity_kw: number;
   total_capacity_mw: number;
   total_annual_kwh: number;
@@ -79,6 +88,30 @@ function fmt$(n: number) {
   return `$${n.toFixed(0)}`;
 }
 
+const SCENARIOS = [
+  {
+    id: 'base',
+    label: 'Base Case',
+    desc: 'Electricity savings + ITC only',
+    color: 'text-gray-700 dark:text-gray-300',
+    activeBg: 'bg-gray-700 text-white',
+  },
+  {
+    id: 'incentives',
+    label: 'With Incentives',
+    desc: '+ RECs + demand savings + LCFS',
+    color: 'text-indigo-700 dark:text-indigo-400',
+    activeBg: 'bg-indigo-600 text-white',
+  },
+  {
+    id: 'grants',
+    label: 'With Grants',
+    desc: '+ FAA AIP potential (not underwritten)',
+    color: 'text-amber-700 dark:text-amber-400',
+    activeBg: 'bg-amber-500 text-white',
+  },
+];
+
 export function PortfolioOptimizer({ airportCode, elecPrice, apiBase = '' }: PortfolioOptimizerProps) {
   const [budget, setBudget] = useState(10_000_000);
   const [customBudget, setCustomBudget] = useState('');
@@ -86,6 +119,7 @@ export function PortfolioOptimizer({ airportCode, elecPrice, apiBase = '' }: Por
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showBuildings, setShowBuildings] = useState(false);
+  const [scenario, setScenario] = useState<'base' | 'incentives' | 'grants'>('incentives');
 
   const effectiveBudget = customBudget ? parseFloat(customBudget.replace(/[,$]/g, '')) || budget : budget;
 
@@ -97,6 +131,7 @@ export function PortfolioOptimizer({ airportCode, elecPrice, apiBase = '' }: Por
         capital_budget: effectiveBudget.toString(),
         radius: '5',
         min_size: '500',
+        scenario,
       });
       if (elecPrice) params.set('elec_price', elecPrice.toString());
 
@@ -110,7 +145,7 @@ export function PortfolioOptimizer({ airportCode, elecPrice, apiBase = '' }: Por
     } finally {
       setLoading(false);
     }
-  }, [airportCode, effectiveBudget, elecPrice, apiBase]);
+    }, [airportCode, effectiveBudget, elecPrice, apiBase, scenario]);
 
   return (
     <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
@@ -126,7 +161,30 @@ export function PortfolioOptimizer({ airportCode, elecPrice, apiBase = '' }: Por
       </div>
 
       <div className="p-5 space-y-4">
-        {/* Budget Input */}
+        {/* Scenario Selector */}
+        <div>
+          <label className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2 block">
+            Financial Scenario
+          </label>
+          <div className="grid grid-cols-3 gap-1.5">
+            {SCENARIOS.map(s => (
+              <button
+                key={s.id}
+                onClick={() => { setScenario(s.id as any); setResult(null); }}
+                className={`px-2 py-2 text-xs rounded-lg font-medium transition-colors text-center ${
+                  scenario === s.id
+                    ? s.activeBg
+                    : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+                }`}
+              >
+                <div>{s.label}</div>
+              </button>
+            ))}
+          </div>
+          <p className="text-xs text-gray-400 dark:text-gray-500 mt-1.5">
+            {SCENARIOS.find(s => s.id === scenario)?.desc}
+          </p>
+        </div>
         <div>
           <label className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 block">
             Capital Budget
@@ -183,7 +241,10 @@ export function PortfolioOptimizer({ airportCode, elecPrice, apiBase = '' }: Por
                 <div className="text-xl font-bold text-indigo-700 dark:text-indigo-400">
                   {fmt$(result.summary.total_npv)}
                 </div>
-                <div className="text-xs text-gray-500 dark:text-gray-400">25-year value</div>
+                <div className="text-xs text-gray-500 dark:text-gray-400">
+                  {result.summary.scenario === 'grants' ? '⚠ incl. grant potential' :
+                   result.summary.scenario === 'base' ? 'conservative / underwritable' : 'with incentives'}
+                </div>
               </div>
               <div className="bg-green-50 dark:bg-green-900/20 rounded-xl p-3">
                 <div className="text-xs text-gray-500 dark:text-gray-400">Capital Deployed</div>
@@ -208,13 +269,42 @@ export function PortfolioOptimizer({ airportCode, elecPrice, apiBase = '' }: Por
               </div>
             </div>
 
+            {/* Scenario note */}
+            {result.summary.scenario_note && (
+              <div className="flex items-start gap-2 text-xs bg-amber-50 dark:bg-amber-900/20 text-amber-800 dark:text-amber-300 rounded-lg p-3">
+                <AlertTriangle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
+                <span>{result.summary.scenario_note}</span>
+              </div>
+            )}
+
+            {/* Scenario NPV comparison */}
+            {result.summary.scenario_npvs && (
+              <div className="bg-gray-50 dark:bg-gray-800 rounded-xl p-3">
+                <div className="text-xs font-medium text-gray-600 dark:text-gray-300 mb-2">Scenario comparison (same portfolio)</div>
+                <div className="space-y-1.5 text-xs">
+                  <div className="flex justify-between items-center">
+                    <span className={`text-gray-600 dark:text-gray-300${result.summary.scenario === 'base' ? ' font-bold' : ''}`}>Base case (electricity + ITC)</span>
+                    <span className={`font-semibold${result.summary.scenario === 'base' ? ' text-indigo-700 dark:text-indigo-400' : ' text-gray-700 dark:text-gray-300'}`}>{fmt$(result.summary.scenario_npvs.base)}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className={`text-gray-600 dark:text-gray-300${result.summary.scenario === 'incentives' ? ' font-bold' : ''}`}>With incentives (RECs + demand)</span>
+                    <span className={`font-semibold${result.summary.scenario === 'incentives' ? ' text-indigo-700 dark:text-indigo-400' : ' text-gray-700 dark:text-gray-300'}`}>{fmt$(result.summary.scenario_npvs.incentives)}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className={`text-gray-500 dark:text-gray-500${result.summary.scenario === 'grants' ? ' font-bold text-gray-600 dark:text-gray-300' : ''}`}>With grants (+ FAA AIP potential)</span>
+                    <span className={`font-semibold text-amber-600 dark:text-amber-400${result.summary.scenario !== 'grants' ? ' opacity-60' : ''}`}>{fmt$(result.summary.scenario_npvs.grants)}</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Grant highlights */}
             {(result.summary.faa_aip_buildings_count > 0 || result.summary.ira_adder_buildings_count > 0) && (
               <div className="flex gap-2 flex-wrap">
                 {result.summary.faa_aip_buildings_count > 0 && (
                   <div className="flex items-center gap-1.5 text-xs bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 rounded-full px-3 py-1">
                     <Award className="w-3 h-3" />
-                    {result.summary.faa_aip_buildings_count} FAA AIP eligible (90% federal)
+                    {result.summary.faa_aip_buildings_count} FAA AIP eligible · {fmt$(result.summary.total_faa_aip_potential)} grant potential
                   </div>
                 )}
                 {result.summary.ira_adder_buildings_count > 0 && (

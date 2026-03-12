@@ -61,6 +61,15 @@ def optimize_portfolio(
     financing: str = Query("cash"),
     min_npv: float = Query(0, description="Minimum building NPV to consider for portfolio"),
     max_payback: float = Query(25, description="Maximum payback years to include"),
+    scenario: str = Query(
+        "incentives",
+        description=(
+            "Financial scenario for NPV ranking: "
+            "'base' = electricity savings + ITC only (most conservative); "
+            "'incentives' = + RECs + demand savings + LCFS (default); "
+            "'grants' = + FAA AIP potential (requires application, not underwritten)"
+        ),
+    ),
 ):
     """
     Optimize solar installation portfolio for maximum NPV within a capital budget.
@@ -88,6 +97,11 @@ def optimize_portfolio(
     state = airport["state"]
     price = elec_price if elec_price is not None else STATE_ELEC_PRICES.get(state, DEFAULT_ELEC_PRICE)
 
+    # Resolve scenario
+    scenario = scenario.lower()
+    if scenario not in ("base", "incentives", "grants"):
+        scenario = "incentives"
+
     # --- Calculate solar for each building ---
     candidates = []
     for b in buildings:
@@ -108,9 +122,24 @@ def optimize_portfolio(
             building_type=btype,
         )
 
-        install_cost = solar["install_cost"]
-        npv = solar["npv_25yr"]
-        payback = solar["payback_years"]
+        # Scenario-specific NPV and install cost
+        scenario_npv_map = solar.get("scenario_npvs", {})
+        if scenario == "base":
+            npv = scenario_npv_map.get("base", solar["npv_25yr"])
+            install_cost = solar["install_cost"]
+            payback = solar["payback_years_base"]
+        elif scenario == "grants":
+            npv = scenario_npv_map.get("grants", solar["npv_25yr"])
+            install_cost = solar["install_cost_with_grants"]
+            payback = solar["payback_years"]  # approximation
+        else:  # incentives (default)
+            npv = scenario_npv_map.get("incentives", solar["npv_25yr"])
+            install_cost = solar["install_cost"]
+            payback = solar["payback_years"]
+
+        # For grants scenario, use non-grant cost as capital requirement when FAA AIP N/A
+        if scenario == "grants" and not solar["faa_aip_applicable"]:
+            install_cost = solar["install_cost"]
 
         # Filter out non-viable candidates
         if install_cost <= 0 or npv < min_npv or payback > max_payback:
@@ -126,13 +155,18 @@ def optimize_portfolio(
             "capacity_kw": solar["capacity_kw"],
             "annual_kwh": solar["annual_kwh"],
             "install_cost": install_cost,
+            "install_cost_full": solar["install_cost"],  # always full (no grants)
             "npv_25yr": npv,
+            "npv_base": scenario_npv_map.get("base", 0),
+            "npv_with_incentives": scenario_npv_map.get("incentives", 0),
+            "npv_with_grants": scenario_npv_map.get("grants", 0),
             "payback_years": payback,
             "lcoe_solar": solar["lcoe_solar"],
             "annual_revenue": solar["annual_revenue"],
             "annual_rec_revenue": solar["annual_rec_revenue"],
             "annual_demand_savings": solar["annual_demand_savings"],
             "faa_aip_applicable": solar["faa_aip_applicable"],
+            "faa_aip_grant_potential": solar["faa_aip_grant_potential"],
             "ira_adder": solar["ira_adder"],
             "npv_per_dollar": npv / install_cost if install_cost > 0 else 0,
             "geometry": b.get("geometry"),
@@ -154,9 +188,12 @@ def optimize_portfolio(
     remaining_budget = capital_budget
     total_cost = 0.0
     total_npv = 0.0
+    total_npv_base = 0.0
+    total_npv_grants = 0.0
     total_capacity_kw = 0.0
     total_annual_kwh = 0.0
     total_annual_revenue = 0.0
+    total_faa_aip_potential = 0.0
 
     for c in sorted_candidates:
         if c["install_cost"] <= remaining_budget:
@@ -164,9 +201,12 @@ def optimize_portfolio(
             remaining_budget -= c["install_cost"]
             total_cost += c["install_cost"]
             total_npv += c["npv_25yr"]
+            total_npv_base += c["npv_base"]
+            total_npv_grants += c["npv_with_grants"]
             total_capacity_kw += c["capacity_kw"]
             total_annual_kwh += c["annual_kwh"]
             total_annual_revenue += c["annual_revenue"]
+            total_faa_aip_potential += c.get("faa_aip_grant_potential", 0)
 
     # --- ROI, ROIC, payback for portfolio ---
     avg_payback = (
@@ -194,8 +234,20 @@ def optimize_portfolio(
         "next_best": next_best,
         "summary": {
             "count": len(selected),
+            "scenario": scenario,
+            "scenario_note": {
+                "base": "Electricity savings + ITC only. Most conservative — suitable for underwriting.",
+                "incentives": "+ RECs + demand savings (15% peak) + LCFS. Estimated — verify with utility data.",
+                "grants": "+ FAA AIP grant potential (90% cost share). Requires 2-4 yr application. Do not underwrite.",
+            }[scenario],
             "total_cost": round(total_cost, 0),
             "total_npv": round(total_npv, 0),
+            "scenario_npvs": {
+                "base": round(total_npv_base, 0),
+                "incentives": round(total_npv, 0) if scenario == "incentives" else round(sum(c["npv_with_incentives"] for c in selected), 0),
+                "grants": round(total_npv_grants, 0),
+            },
+            "total_faa_aip_potential": round(total_faa_aip_potential, 0),
             "total_capacity_kw": round(total_capacity_kw, 1),
             "total_capacity_mw": round(total_capacity_kw / 1000, 3),
             "total_annual_kwh": round(total_annual_kwh, 0),

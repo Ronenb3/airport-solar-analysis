@@ -382,12 +382,18 @@ export function BuildingDetailPanel({ buildings, onClose, onHide, onRemoveCustom
                 ${solar.gross_install_cost?.toLocaleString()}
               </span>
             </div>
-            {solar.faa_aip_applicable && solar.faa_aip_grant > 0 && (
+            {solar.faa_aip_applicable && solar.faa_aip_grant_potential > 0 && (
               <div className="flex justify-between">
                 <span className="text-gray-500 dark:text-gray-400 flex items-center gap-1">
-                  <Award className="w-3 h-3 text-blue-500" /> FAA AIP (90% federal)
+                  <Award className="w-3 h-3 text-amber-500" />
+                  <span>FAA AIP grant potential</span>
                 </span>
-                <span className="font-semibold text-blue-600">-${solar.faa_aip_grant?.toLocaleString()}</span>
+                <span className="font-semibold text-amber-600">${(solar.faa_aip_grant_potential || solar.faa_aip_grant || 0).toLocaleString()}</span>
+              </div>
+            )}
+            {solar.faa_aip_applicable && (
+              <div className="text-xs text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 rounded-lg px-2 py-1">
+                ⚠ Grant potential only — requires 2–4 yr FAA application &amp; NEPA review. Not applied to base case costs.
               </div>
             )}
             {hasITC && (
@@ -411,7 +417,7 @@ export function BuildingDetailPanel({ buildings, onClose, onHide, onRemoveCustom
             {solar.annual_rec_revenue > 0 && (
               <div className="flex justify-between">
                 <span className="text-gray-500 dark:text-gray-400 flex items-center gap-1">
-                  <Tag className="w-3 h-3" /> RECs (${solar.rec_price_per_mwh}/MWh)
+                  <Tag className="w-3 h-3" /> RECs (${solar.rec_price_per_mwh}/MWh){solar.rec_price_volatile ? '⚠' : ''}
                 </span>
                 <span className="font-semibold text-green-600">+${solar.annual_rec_revenue?.toLocaleString()}/yr</span>
               </div>
@@ -419,7 +425,7 @@ export function BuildingDetailPanel({ buildings, onClose, onHide, onRemoveCustom
             {solar.annual_demand_savings > 0 && (
               <div className="flex justify-between">
                 <span className="text-gray-500 dark:text-gray-400 flex items-center gap-1">
-                  <BarChart2 className="w-3 h-3" /> Demand charge savings
+                  <BarChart2 className="w-3 h-3" /> Demand charge savings*
                 </span>
                 <span className="font-semibold text-green-600">+${solar.annual_demand_savings?.toLocaleString()}/yr</span>
               </div>
@@ -438,7 +444,12 @@ export function BuildingDetailPanel({ buildings, onClose, onHide, onRemoveCustom
               <span className="text-gray-700 dark:text-gray-300 font-medium flex items-center gap-1">
                 <Calendar className="w-3 h-3" /> Payback Period
               </span>
-              <span className="font-bold text-green-700 dark:text-green-400">{solar.payback_years} years</span>
+              <div className="text-right">
+                <span className="font-bold text-green-700 dark:text-green-400">{solar.payback_years} years</span>
+                {solar.payback_years_base && solar.payback_years_base !== solar.payback_years && (
+                  <div className="text-xs text-gray-400">{solar.payback_years_base}yr base case</div>
+                )}
+              </div>
             </div>
             <div className="flex justify-between">
               <span className="text-gray-700 dark:text-gray-300 font-medium flex items-center gap-1">
@@ -447,6 +458,35 @@ export function BuildingDetailPanel({ buildings, onClose, onHide, onRemoveCustom
               <span className={`font-bold ${(solar.npv_25yr || 0) >= 0 ? 'text-green-700 dark:text-green-400' : 'text-red-600'}`}>
                 ${solar.npv_25yr?.toLocaleString()}
               </span>
+            </div>
+            {/* Scenario NPV breakdown */}
+            {solar.scenario_npvs && (
+              <div className="mt-1 rounded-lg bg-gray-50 dark:bg-gray-800 px-3 py-2 space-y-1">
+                <div className="text-xs text-gray-500 dark:text-gray-400 font-medium mb-1">NPV by scenario</div>
+                <div className="flex justify-between text-xs">
+                  <span className="text-gray-500">Base (elec + ITC only)</span>
+                  <span className="font-semibold text-gray-700 dark:text-gray-300">${(solar.scenario_npvs?.base || 0).toLocaleString()}</span>
+                </div>
+                <div className="flex justify-between text-xs">
+                  <span className="text-gray-500">With incentives</span>
+                  <span className="font-semibold text-indigo-700 dark:text-indigo-400">${(solar.scenario_npvs?.incentives || 0).toLocaleString()}</span>
+                </div>
+                {solar.faa_aip_applicable && (
+                  <div className="flex justify-between text-xs">
+                    <span className="text-amber-600 dark:text-amber-400">⚠ With grants (FAA AIP)</span>
+                    <span className="font-semibold text-amber-600 dark:text-amber-400">${(solar.scenario_npvs?.grants || 0).toLocaleString()}</span>
+                  </div>
+                )}
+              </div>
+            )}
+            {/* Footnotes */}
+            <div className="text-xs text-gray-400 dark:text-gray-500 space-y-0.5">
+              {solar.annual_demand_savings > 0 && (
+                <div>* Demand savings: 15% coincident peak assumed — verify with 15-min interval utility data.</div>
+              )}
+              {solar.rec_price_volatile && (
+                <div>⚠ REC price: volatile market — actual contracted price may differ significantly.</div>
+              )}
             </div>
           </div>
         </div>

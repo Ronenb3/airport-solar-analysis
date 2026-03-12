@@ -427,8 +427,21 @@ DEMAND_CHARGE_RATES = {
 }
 DEFAULT_DEMAND_CHARGE = 13.50  # National commercial average
 # What fraction of peak kW demand solar covers (for demand charge savings)
-# Conservative: ~25% via afternoon generation (noon-3pm peak alignment)
-DEMAND_REDUCTION_FACTOR = 0.25
+# Conservative: 15% — requires 15-min interval load data to confirm coincident peak.
+# Assumes south-facing panels reduce summer afternoon peak ~15% of nameplate.
+# Source: NREL CREST model conservative estimate without load profiles.
+DEMAND_REDUCTION_FACTOR = 0.15
+# Optimistic: 25% — only achievable with verified coincident peak alignment
+# (requires utility billing analysis + smart inverter dispatch to 15-min window).
+DEMAND_REDUCTION_OPTIMISTIC = 0.25
+
+# States with historically volatile REC/SREC markets — flag for investor disclosure
+# NJ SREC price dropped from $230 → $40 (2012-2016), then recovered; currently ~$220 in TREC
+# IL SREC (REINS program) has degraded significantly post-2020
+# MA SREC II market closed; now APS/SMART at lower $/MWh
+# CT ZREC market prices have compressed
+# MD SREC prices collapsed 2013–2018 before new carve-out
+REC_VOLATILE_STATES = {"New Jersey", "Massachusetts", "Connecticut", "Illinois", "Maryland"}
 
 # =============================================================================
 # IRA (Inflation Reduction Act) BONUS ITC ADDERS — 2024
