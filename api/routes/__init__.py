@@ -38,6 +38,14 @@ async def status(request: Request):
             "airports_file_exists": AIRPORTS_FILE.exists(),
             "cached_airports": cached_airports,
         },
+        "_debug": {
+            "data_dir": str(DATA_DIR),
+            "data_dir_exists": DATA_DIR.exists(),
+            "airports_file": str(AIRPORTS_FILE),
+            "cache_v2_dir": str(cache_v2_dir),
+            "cache_v2_exists": cache_v2_dir.exists(),
+            "env_DATA_DIR": __import__("os").environ.get("DATA_DIR", "(not set)"),
+        },
     }
 
 
